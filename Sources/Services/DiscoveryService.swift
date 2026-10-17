@@ -22,8 +22,8 @@ final class DiscoveryService: @unchecked Sendable {
                 continuation.resume(with: result)
             }
 
-            browser.stateUpdateHandler = { _, _, error in
-                if let error {
+            browser.stateUpdateHandler = { state in
+                if case let .failed(error) = state {
                     finish(.failure(error))
                 }
             }
@@ -69,3 +69,4 @@ final class DiscoveryService: @unchecked Sendable {
         }
     }
 }
+
