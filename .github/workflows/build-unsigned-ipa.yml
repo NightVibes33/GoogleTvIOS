@@ -41,5 +41,27 @@ jobs:
           path: CastDeck-iOS-27-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
+      - name: Build for iOS 27 simulator
+        run: xcodebuild -project CastDeck.xcodeproj -scheme CastDeck -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build-simulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= build
+      - name: Boot simulator, launch app, and capture screenshot
+        run: |
+          UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin); devices=[d for runtime, group in data["devices"].items() if "iOS-27" in runtime for d in group if d["isAvailable"] and d["name"].startswith("iPhone")]; print(devices[0]["udid"] if devices else "")')"
+          test -n "$UDID"
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+          APP_PATH="$(find build-simulator/Build/Products/Debug-iphonesimulator -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          xcrun simctl install "$UDID" "$APP_PATH"
+          xcrun simctl launch "$UDID" com.castdeck.googletvremote
+          sleep 3
+          mkdir -p screenshots
+          xcrun simctl io "$UDID" screenshot screenshots/CastDeck-iOS-27-simulator.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CastDeck-iOS-27-simulator-screenshot
+          path: screenshots/CastDeck-iOS-27-simulator.png
+          if-no-files-found: error
+          retention-days: 30
 
 
