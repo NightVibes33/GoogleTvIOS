@@ -1,0 +1,43 @@
+name: Build unsigned iOS 27 IPA
+
+on:
+  push:
+    branches:
+      - codex/unsigned-ios-27-ipa
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Xcode 27 and iOS 27 SDK
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | tee /tmp/sdks.txt
+          grep -Eq 'iphoneos27([.]|$)' /tmp/sdks.txt
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+      - name: Resolve Swift packages
+        run: xcodebuild -resolvePackageDependencies -project CastDeck.xcodeproj -scheme CastDeck
+      - name: Build unsigned device app
+        run: xcodebuild -project CastDeck.xcodeproj -scheme CastDeck -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= build
+      - name: Package unsigned IPA
+        run: |
+          APP_PATH="$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          mkdir -p Payload
+          ditto "$APP_PATH" "Payload/$(basename "$APP_PATH")"
+          /usr/bin/zip -qry CastDeck-iOS-27-unsigned.ipa Payload
+          unzip -l CastDeck-iOS-27-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CastDeck-iOS-27-unsigned-IPA
+          path: CastDeck-iOS-27-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
