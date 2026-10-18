@@ -25,6 +25,8 @@ final class RealtimeMirrorSession: ObservableObject {
     private var capture: AnyObject?
     private var generation = UUID()
     private var refreshTask: Task<Void, Never>?
+    private var didNegotiate = false
+    private var sawRemoteVideo = false
 
     init() {
         CastMediaSender.configureSDK()
@@ -71,6 +73,8 @@ final class RealtimeMirrorSession: ObservableObject {
         let current = generation
         error = nil
         videoFrames = 0
+        didNegotiate = false
+        sawRemoteVideo = false
         isStarting = true
         log("Connecting to built-in Chromecast real-time mirroring receiver")
         if sender == nil { sender = CastRealtimeSender() }
@@ -92,8 +96,17 @@ final class RealtimeMirrorSession: ObservableObject {
         sender.onKeyframeNeeded = { [weak self] in
             self?.encoder?.requestKeyframe()
         }
+        sender.onVideoPacket = { [weak self] in
+            guard let self, self.generation == current, !self.sawRemoteVideo else { return }
+            self.sawRemoteVideo = true
+            self.isMirroring = true
+            self.isStarting = false
+            self.error = nil
+            self.log("Chromecast acknowledged video delivery over real-time RTP")
+        }
         sender.onNegotiated = { [weak self] in
             guard let self, self.generation == current else { return }
+            self.didNegotiate = true
             self.log("Cast Streaming receiver negotiated; starting iPhone screen capture")
             do {
                 let encoder = try CastRealtimeEncoder(quality4K: sender.negotiated4K)
@@ -119,9 +132,15 @@ final class RealtimeMirrorSession: ObservableObject {
                         guard self.generation == current else { return }
                         self.videoFrames += 1
                         if self.videoFrames == 1 {
-                            self.isMirroring = true
-                            self.isStarting = false
-                            self.log("Real-time encoded screen frames are being sent to Chromecast")
+                            self.log("First video frame transmitted; waiting for Chromecast RTP acknowledgment")
+                            Task { @MainActor [weak self] in
+                                try? await Task.sleep(nanoseconds: 25_000_000_000)
+                                guard let self, self.generation == current,
+                                      !self.sawRemoteVideo else { return }
+                                self.stop()
+                                self.error = "Chromecast did not acknowledge video frames. Check Cast Streaming logs in Files."
+                                self.log("Video ACK timeout: no RTCP checkpoint from Chromecast")
+                            }
                         }
                     }
                 }
@@ -158,9 +177,10 @@ final class RealtimeMirrorSession: ObservableObject {
             try sender.start(receiverID: receiverID, quality4K: quality4K)
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 20_000_000_000)
-                guard let self, self.generation == current, self.isStarting else { return }
+                guard let self, self.generation == current, self.isStarting,
+                      !self.didNegotiate else { return }
                 self.stop()
-                self.error = "Chromecast did not finish the real-time streaming handshake. See Files → CastDeck → Logs."
+                self.error = "Chromecast did not finish the Cast Streaming handshake. See Files → CastDeck → Logs."
                 self.log("Cast Streaming OFFER/ANSWER or iOS capture timed out")
             }
         } catch {

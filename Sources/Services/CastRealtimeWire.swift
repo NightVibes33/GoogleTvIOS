@@ -75,6 +75,8 @@ final class CastRealtimeWire {
     var onEvent: ((String) -> Void)?
     var onReady: (() -> Void)?
     var onPacketLoss: (() -> Void)?
+    var onVideoAcknowledged: (() -> Void)?
+    private var receivedVideoAcknowledgement = false
     private let queue = DispatchQueue(label: "castdeck.cast.rtp", qos: .userInitiated)
     let offer: Offer
     let audioOffer: Offer?
@@ -286,13 +288,20 @@ final class CastRealtimeWire {
                packet.subdata(in: (offset + 12)..<(offset + 16)) == Data("CAST".utf8) {
                 let checkpoint = packet[offset + 16]
                 let lossCount = Int(packet[offset + 17])
-                if lastCheckpoint != checkpoint {
-                    lastCheckpoint = checkpoint
-                    if checkpoint % 60 == 0 {
-                        onEvent?("Cast RTCP checkpoint advanced to \(checkpoint)")
+                let mediaSSRC = packet.uint32(at: offset+8)
+                if mediaSSRC == offer.ssrc {
+                    if !receivedVideoAcknowledgement {
+                        receivedVideoAcknowledgement = true
+                        onEvent?("Chromecast confirmed receiving video RTP frames")
+                        onVideoAcknowledged?()
+                    }
+                    if lastCheckpoint != checkpoint {
+                        lastCheckpoint = checkpoint
+                        if checkpoint % 60 == 0 {
+                            onEvent?("Cast RTCP video checkpoint advanced to \(checkpoint)")
+                        }
                     }
                 }
-                let mediaSSRC = packet.uint32(at: offset+8)
                 let ring = mediaSSRC == audioOffer?.ssrc ? audioSent : sent
                 for i in 0..<lossCount {
                     let start = offset + 20 + i * 4

@@ -24,6 +24,7 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
     private var desired4K = false
     private var negotiating = false
     private var configured = false
+    private var offerSequence = 0
     private(set) var negotiated4K = false
 
     override init() {
@@ -121,9 +122,10 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
         let audio = CastRealtimeWire.Offer.audio()
         streamAudioOffer = audio
         let size = desired4K ? (3840, 2160) : (1920, 1080)
+        offerSequence += 1
         let payload: [String: Any] = [
             "type": "OFFER",
-            "seqNum": 1,
+            "seqNum": offerSequence,
             "offer": [
                 "castMode": "mirroring",
                 "supportedStreams": [
@@ -183,6 +185,9 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
         }
         transport.onPacketLoss = { [weak self] in
             Task { @MainActor in self?.onKeyframeNeeded?() }
+        }
+        transport.onVideoAcknowledged = { [weak self] in
+            Task { @MainActor in self?.onVideoPacket?() }
         }
         transport.onReady = { [weak self] in
             Task { @MainActor in

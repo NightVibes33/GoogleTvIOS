@@ -18,9 +18,10 @@ final class CastRealtimeAudioEncoder {
     private var active = true
 
     func process(_ sample: CMSampleBuffer) {
-        queue.async { [weak self] in
-            self?.encode(sample)
-        }
+        // ScreenCaptureKit already invokes this on a dedicated serial sample
+        // queue. Never retain a borrowed CMSampleBuffer in an asynchronous
+        // task: capture can recycle it as soon as this callback returns.
+        encode(sample)
     }
 
     private func encode(_ sample: CMSampleBuffer) {
