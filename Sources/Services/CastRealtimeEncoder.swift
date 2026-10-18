@@ -133,7 +133,7 @@ final class CastRealtimeEncoder {
               let format = CMSampleBufferGetFormatDescription(sample) else { return }
         guard CMBlockBufferGetDataLength(block) > 0 else { return }
         let total = CMBlockBufferGetDataLength(block)
-        let data = Data(count: total)
+        var data = Data(count: total)
         let copy = data.withUnsafeMutableBytes {
             CMBlockBufferCopyDataBytes(block, atOffset: 0,
                                        dataLength: total, destination: $0.baseAddress!)
