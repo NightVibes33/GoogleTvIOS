@@ -166,7 +166,7 @@ final class IOS27CaptureEngine: NSObject, SCContentSharingPickerObserver, SCStre
 
     func presentPicker() {
         let picker = SCContentSharingPicker.shared
-        let config = SCContentSharingPickerConfiguration()
+        var config = SCContentSharingPickerConfiguration()
         config.showsMicrophoneControl = false
         config.showsCameraControl = false
         picker.defaultConfiguration = config
@@ -180,17 +180,14 @@ final class IOS27CaptureEngine: NSObject, SCContentSharingPickerObserver, SCStre
                               for existingStream: SCStream?) {
         Task {
             do {
-                if let existingStream {
-                    try await existingStream.updateContentFilter(filter)
-                    onState?("Updated screen-sharing selection")
+                if existingStream != nil {
+                    onState?("To change shared content, stop and restart mirroring.")
                     return
                 }
                 let config = SCStreamConfiguration()
                 let bounds = UIScreen.main.nativeBounds
                 config.width = Int(bounds.width)
                 config.height = Int(bounds.height)
-                config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-                config.queueDepth = 6
                 config.capturesAudio = true
                 config.sampleRate = 48_000
                 config.channelCount = 2

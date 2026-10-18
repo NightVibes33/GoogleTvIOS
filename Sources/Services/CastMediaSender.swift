@@ -34,7 +34,7 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
         let manager = GCKCastContext.sharedInstance().discoveryManager
         return (0..<Int(manager.deviceCount)).compactMap { index in
             guard let device = manager.device(at: UInt(index)) else { return nil }
-            return Receiver(id: device.deviceID, name: device.friendlyName)
+            return Receiver(id: device.deviceID, name: device.friendlyName ?? "Chromecast")
         }
     }
 
@@ -54,7 +54,7 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
         guard manager.startSession(with: device) else {
             throw MirrorError.castFailed("Google Cast SDK could not start a session.")
         }
-        onState?("Connecting to " + device.friendlyName)
+        onState?("Connecting to " + (device.friendlyName ?? "Chromecast"))
     }
 
     func sessionManager(_ sessionManager: GCKSessionManager, didStart session: GCKSession) {
