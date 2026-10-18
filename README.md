@@ -6,7 +6,7 @@ CastDeck is an independent, native SwiftUI remote app. The iPhone screen is the 
 
 - **Chromecast with Google TV, Google TV Streamer, and Android TV devices that expose Android TV Remote v2:** remote directional buttons and pairing via TLS TCP/6466 and TCP/6467.
 - **Original cast-only Chromecast receivers:** discovered through `_googlecast._tcp` and identified as cast-only. They **do not** implement Android TV Remote v2; this build does not control them. Do not mistake cast discovery for support for screen mirroring or media casting.
-- Media casting, screen mirroring, installed-app enumeration, and iPhone microphone PCM streaming are **not implemented**. The search key triggers the TV search interface; it does not stream microphone audio from the phone.
+- The iOS 27 Screen Mirror sheet now contains an experimental local full-screen HLS casting pipeline. Installed-app enumeration and iPhone microphone PCM streaming to Assistant are **not implemented**. The search key triggers the TV search interface; it does not stream microphone audio from the phone.
 
 ## Build and install
 
@@ -30,7 +30,7 @@ If pairing is revoked on the TV, reconnect and pair again. The TV's certificate 
 
 ## Settings
 
-Haptic feedback, automatic discovery, system/light/dark appearance, reconnect/disconnect, plain-text diagnostics sharing, and compatibility details. The remote includes a TV keyboard for A–Z, 0–9 and spaces using Android key events.
+Haptic feedback, automatic discovery, D-pad/swipe navigation, reconnect/disconnect, and plain-text diagnostics sharing. The remote includes a TV keyboard for A–Z, 0–9 and spaces using Android key events.
 
 ## Development
 
@@ -46,6 +46,27 @@ Haptic feedback, automatic discovery, system/light/dark appearance, reconnect/di
 The iOS `NSNetServicesMissingRequiredConfigurationError` (`-72008`) means the **installed app** is missing required local-network configuration, irrespective of what's present in a source `Info.plist`. This repository builds with **XcodeGen**, so both `NSLocalNetworkUsageDescription` and `NSBonjourServices` must be defined under `targets.CastDeck.info.properties` in `project.yml`. The CI workflow now opens the **packaged IPA** and asserts both keys are present before publishing an artifact.
 
 When replacing a previously installed build, use the new corrected unsigned IPA (signed as required by your installer). In iPhone Settings, permit Local Network for CastDeck. If the service still isn't found, use the TV's IP and check that the router does not isolate Wi-Fi clients.
+
+
+## Full iPhone screen mirror (iOS 27)
+
+The remote remains independent from Google Cast. Tap the **screen mirror icon** in its header, choose a Cast receiver (discovered by the official Google Cast sender SDK), select **1080p/H.264** or **4K/HEVC**, then start screen mirroring. The iOS system sharing picker must grant full-display capture.
+
+Pipeline: `SCContentSharingPicker` → `SCStream` screen + device audio sample buffers → Core Image letterboxing + hardware AVAssetWriter H.264/HEVC and stereo AAC → local fMP4 HLS served over HTTP to the Chromecast Default Media Receiver using the official Google Cast iOS Sender SDK. The background capture mode is `screen-capture`. No remote server and no recording upload.
+
+- 1080p outputs 1920×1080 H.264, target 6 Mb/s. 4K outputs 3840×2160 HEVC, target 18 Mb/s, 30 fps. This is **output encoding resolution**, not native capture detail and not a guarantee that the receiver can decode 4K.
+- AAC stereo targets 192 kb/s and 48 kHz. Video and audio use the same ScreenCaptureKit presentation timestamps. Output synchronization and actual audible playback **must be measured on a real device**.
+- Fragmented HLS uses 2-second segments, so it has inherent latency. No claims of near-zero delay or flawless audio.
+- Protected/DRM playback can yield blank video or silent audio. Original 1080p-only Chromecasts cannot decode 4K HEVC; use the 1080p preset there.
+- Google Cast SDK discovery is separate from the Android TV Remote v2 pairing. Mirroring does **not** require remote PIN pairing.
+- Keep the iPhone and Chromecast on the same reachable Wi-Fi. Screen capture and the embedded HTTP server need to remain active.
+- Unverified in physical hardware: Cast receiver playback, HEVC compatibility, encoded audio and sustained quality. CI compilation is not a physical streaming test.
+
+### Open source used
+
+- [ScreenCaptureKit iOS sample](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-on-ios) for OS 27 picker and capture lifecycle.
+- [HLSStreamer](https://github.com/jdkula/HLSStreamer) for reference architecture of phone-hosted HLS.
+- [GoogleCast SDK binary Swift package](https://github.com/SRGSSR/google-cast-sdk) for the official Cast sender API.
 
 ## License
 

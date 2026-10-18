@@ -6,6 +6,8 @@ struct RootView: View {
     @AppStorage("autoScan") private var autoScan = true
     @State private var devicePicker = false
     @State private var settings = false
+    @State private var showingMirror = false
+    @StateObject private var mirror = MirrorSession()
     @State private var scanned = false
 
     private let background = Color(red: 0.105, green: 0.112, blue: 0.124)
@@ -56,6 +58,9 @@ struct RootView: View {
         .sheet(isPresented: $settings) {
             SettingsPanel().environmentObject(session)
         }
+        .sheet(isPresented: $showingMirror) {
+            MirrorPanel(mirror: mirror)
+        }
         .onAppear {
             guard !scanned else { return }
             scanned = true
@@ -88,6 +93,16 @@ struct RootView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Choose a television")
             Spacer()
+            Button {
+                showingMirror = true
+            } label: {
+                Image(systemName: "rectangle.on.rectangle.angled")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(mirror.isMirroring ? .green : .white.opacity(0.86))
+                    .frame(width: 42, height: 44)
+            }
+            .accessibilityLabel("Screen mirror to Chromecast")
+
             Button {
                 settings = true
             } label: {

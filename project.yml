@@ -11,6 +11,9 @@ settings:
   SWIFT_VERSION: "5.10"
   IPHONEOS_DEPLOYMENT_TARGET: "17.0"
 packages:
+  GoogleCast:
+    url: https://github.com/SRGSSR/google-cast-sdk
+    from: 4.8.6
   AndroidTVRemoteControl:
     url: https://github.com/odyshewroman/AndroidTVRemoteControl
     from: 2.0.0
@@ -31,17 +34,24 @@ targets:
       TARGETED_DEVICE_FAMILY: "1,2"
       SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
       GENERATE_INFOPLIST_FILE: false
-      CURRENT_PROJECT_VERSION: 3
-      MARKETING_VERSION: "1.2.0"
+      CURRENT_PROJECT_VERSION: 4
+      MARKETING_VERSION: "1.3.0"
       CODE_SIGN_STYLE: Automatic
     dependencies:
       - package: AndroidTVRemoteControl
+      - package: GoogleCast
     info:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: CastDeck
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSScreenCaptureUsageDescription: CastDeck mirrors your iPhone screen only after you select it in the iOS sharing picker.
+        NSBluetoothAlwaysUsageDescription: CastDeck discovers supported nearby Chromecast receivers.
+        UIBackgroundModes:
+          - screen-capture
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: CastDeck discovers Google TV and Chromecast devices on your local Wi-Fi network to connect to your television.
         NSBonjourServices:
           - _androidtvremote2._tcp

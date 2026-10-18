@@ -19,6 +19,14 @@
         <string>_androidtvremote2._tcp</string>
         <string>_googlecast._tcp</string>
     </array>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>CastDeck mirrors your iPhone screen only after you select it in the iOS sharing picker.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>CastDeck discovers supported nearby Chromecast receivers.</string>
+    <key>UIBackgroundModes</key>
+    <array><string>screen-capture</string></array>
+    <key>NSAppTransportSecurity</key>
+    <dict><key>NSAllowsLocalNetworking</key><true/></dict>
     <key>UILaunchScreen</key>
     <dict><key>UIColorName</key><string>Background</string></dict>
     <key>UISupportedInterfaceOrientations</key>

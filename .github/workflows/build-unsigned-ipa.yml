@@ -51,9 +51,11 @@ jobs:
           description = info.get("NSLocalNetworkUsageDescription", "")
           assert expected.issubset(services), f"Missing Bonjour service types: {expected - services}"
           assert isinstance(description, str) and description.strip(), "Missing NSLocalNetworkUsageDescription"
-          assert info.get("CFBundleShortVersionString") == "1.2.0", f"Unexpected version: {info.get('CFBundleShortVersionString')}"
-          assert str(info.get("CFBundleVersion")) == "3", f"Unexpected build number: {info.get('CFBundleVersion')}"
-          print("Packaged app Info.plist verified: Bonjour services, Local Network usage, version and build number")
+          assert info.get("CFBundleShortVersionString") == "1.3.0", f"Unexpected version: {info.get('CFBundleShortVersionString')}"
+          assert str(info.get("CFBundleVersion")) == "4", f"Unexpected build number: {info.get('CFBundleVersion')}"
+          assert info.get("NSScreenCaptureUsageDescription"), "Missing ScreenCaptureKit usage description"
+          assert "screen-capture" in info.get("UIBackgroundModes", []), "Missing iOS 27 capture background mode"
+          print("Packaged Info.plist verified: Bonjour, ScreenCaptureKit, background mode, version/build")
           PY
       - uses: actions/upload-artifact@v4
         with:
