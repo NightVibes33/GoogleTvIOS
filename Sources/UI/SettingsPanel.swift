@@ -51,15 +51,21 @@ struct SettingsPanel: View {
                 }
 
                 Section("Compatibility") {
-                    Text("Directional remote control works with supported Google TV and Android TV devices. Older Chromecasts that only provide Google Cast do not expose this remote protocol.")
+                    Label("Google TV and Android TV: directional remote + screen mirroring",
+                          systemImage: "checkmark.circle")
+                    Label("Cast-only Chromecast: screen mirroring only",
+                          systemImage: "display")
+                    Text("Screen mirroring is experimental and requires iOS 27. Output resolution depends on receiver compatibility. Some protected content and audio cannot be captured.")
                         .font(.footnote)
-                    Text("The search button opens the TV's search interface. Streaming your iPhone microphone to Assistant is not supported by the current transport.")
+                        .foregroundStyle(.secondary)
+                    Text("Google Assistant microphone input is not supported by the remote protocol.")
                         .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("About") {
                     LabeledContent("App", value: "CastDeck")
-                    LabeledContent("Version", value: "1.2")
+                    LabeledContent("Version", value: (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "—")
                     Text("Independent open-source Google TV remote. Not affiliated with Google.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)

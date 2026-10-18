@@ -68,6 +68,24 @@ Pipeline: `SCContentSharingPicker` → `SCStream` screen + device audio sample b
 - [HLSStreamer](https://github.com/jdkula/HLSStreamer) for reference architecture of phone-hosted HLS.
 - [GoogleCast SDK binary Swift package](https://github.com/SRGSSR/google-cast-sdk) for the official Cast sender API.
 
+
+## Device identity, friendly names, and duplicate prevention
+
+Cast-enabled Google TV receivers often announce both `_googlecast._tcp` and
+`_androidtvremote2._tcp`. They may have different Bonjour instance names
+despite being the **same physical TV**. CastDeck therefore resolves the
+advertisements, groups the records by the resolved IPv4 endpoint, and shows
+one device row, preferring Android TV Remote v2 capabilities and the Cast
+`fn` TXT-record friendly name when available. Unresolved advertisements
+do not temporarily create duplicate rows. In Screen Mirror, the official
+Google Cast Sender SDK's device ID is used for duplicate elimination and
+its `friendlyName` is displayed. Two genuinely distinct IP addresses or
+Cast SDK device IDs remain separate; do not merge TVs merely because they
+share the same display name.
+
+This discovery strategy was implemented and built for testing, but not yet
+verified on multiple physical Chromecast receivers.
+
 ## License
 
 MIT. Independent application; not affiliated with Google.

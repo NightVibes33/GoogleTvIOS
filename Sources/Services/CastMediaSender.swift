@@ -14,6 +14,7 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
     private var mediaURL: URL?
     private var activeReceiverID: String?
     private var loading = false
+    private var listenerRegistered = false
 
     override init() {
         super.init()
@@ -26,15 +27,29 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
     }
 
     func startDiscovery() {
-        GCKCastContext.sharedInstance().sessionManager.add(self)
+        if !listenerRegistered {
+            GCKCastContext.sharedInstance().sessionManager.add(self)
+            listenerRegistered = true
+        }
         GCKCastContext.sharedInstance().discoveryManager.startDiscovery()
     }
 
     func availableReceivers() -> [Receiver] {
         let manager = GCKCastContext.sharedInstance().discoveryManager
-        return (0..<Int(manager.deviceCount)).map { index in
+        var byID: [String: Receiver] = [:]
+        for index in 0..<Int(manager.deviceCount) {
             let device = manager.device(at: UInt(index))
-            return Receiver(id: device.deviceID, name: device.friendlyName ?? "Chromecast")
+            // The SDK can report the same device through multiple discovery paths.
+            // Its unique deviceID, not the DNS-SD service instance, identifies it.
+            let id = device.deviceID
+            guard !id.isEmpty else { continue }
+            let friendly = device.friendlyName?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = friendly.flatMap { $0.isEmpty ? nil : $0 } ?? "Unnamed Chromecast"
+            byID[id] = Receiver(id: id, name: label)
+        }
+        return byID.values.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
     }
 

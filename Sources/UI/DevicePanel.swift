@@ -33,7 +33,7 @@ struct DevicePanel: View {
                 }
 
                 if let selected = session.selected {
-                    Section("Current TV") {
+                    Section("My TV") {
                         HStack {
                             Image(systemName: "tv.fill")
                                 .foregroundStyle(Theme.accent)
@@ -57,39 +57,40 @@ struct DevicePanel: View {
                     }
                 }
 
-                Section("Nearby devices") {
+                Section {
                     if session.devices.isEmpty {
                         ContentUnavailableView(
-                            "No nearby TVs yet",
-                            systemImage: "tv.slash",
-                            description: Text(session.isScanning ? "Searching for Google TV and Chromecast…" : "Enter your TV's IP address below, or check Local Network access.")
+                            "Looking for your TV",
+                            systemImage: "tv",
+                            description: Text(session.isScanning ?
+                                "Finding TVs on your Wi-Fi network…" :
+                                "No TV resolved yet. Scan again or enter its IP address below.")
                         )
                     }
                     ForEach(session.devices) { device in
-                        Button {
-                            session.connect(to: device)
-                            if device.supportsRemote && !session.isPairing { ipFocused = false }
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: device.supportsRemote ? "tv.fill" : "airplayvideo")
-                                    .font(.title3)
-                                    .frame(width: 34)
-                                    .foregroundStyle(Theme.accent)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(device.name).foregroundStyle(.primary)
-                                    Text(device.host.isEmpty ? "Resolving network address…" :
-                                        device.supportsRemote ? "Google TV remote · " + device.host :
-                                        "Chromecast discovered · " + device.host)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                        if device.supportsRemote {
+                            Button {
+                                session.connect(to: device)
+                                ipFocused = false
+                            } label: {
+                                deviceRow(device, tappable: true)
                             }
+                            .buttonStyle(.plain)
+                        } else {
+                            deviceRow(device, tappable: false)
                         }
-                        .disabled(device.host.isEmpty)
                     }
+                } header: {
+                    HStack {
+                        Text("Nearby televisions")
+                        Spacer()
+                        Text("\(session.devices.count) found")
+                            .textCase(nil)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text("Each physical television is shown once. Google TV devices support remote control; Cast-only receivers are available from Screen Mirror on the remote.")
                 }
 
                 Section {
@@ -152,6 +153,45 @@ struct DevicePanel: View {
             if session.devices.isEmpty && !session.isScanning { session.scan() }
         }
         .presentationDragIndicator(.visible)
+    }
+
+    private func deviceRow(_ device: TVDevice, tappable: Bool) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: device.supportsRemote ? "tv.fill" : "display")
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(device.supportsRemote ? Theme.accent : Color.secondary)
+                .frame(width: 48, height: 48)
+                .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 13))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(device.name)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(device.supportsRemote ? "Google TV · Remote + Cast" : "Chromecast · Screen mirroring")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(device.host)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 2)
+            if session.isConnected && session.selected?.host == device.host {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .accessibilityLabel("Connected")
+            } else if tappable {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            } else {
+                Image(systemName: "rectangle.on.rectangle.angled")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Screen mirroring available")
+            }
+        }
+        .padding(.vertical, 7)
+        .contentShape(Rectangle())
     }
 
     private func connectManual() {

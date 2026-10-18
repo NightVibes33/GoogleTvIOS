@@ -1,7 +1,10 @@
 import Foundation
 import SwiftUI
 import AVFoundation
+
+#if !targetEnvironment(simulator)
 import ScreenCaptureKit
+#endif
 
 /// UI-facing capture and Cast session lifecycle. The user chooses a receiver and
 /// explicitly grants full-display capture from the iOS system picker.
@@ -89,6 +92,7 @@ final class MirrorSession: ObservableObject {
                         self?.record("HLS encoder: " + message)
                     }
                 }
+                #if !targetEnvironment(simulator)
                 let engine = IOS27CaptureEngine(encoder: encoder)
                 self.capture = engine
                 engine.onState = { [weak self] message in
@@ -118,6 +122,9 @@ final class MirrorSession: ObservableObject {
                     throw MirrorError.writerFailed("No encoded HLS media arrived. Check screen sharing permission and screen recording restrictions.")
                 }
                 try cast.cast(receiverID: receiverID, mediaURL: url)
+                #else
+                throw MirrorError.writerFailed("ScreenCaptureKit is unavailable in the iOS simulator. Install the IPA on a physical iPhone.")
+                #endif
                 isStarting = false
                 isMirroring = true
                 record("Sending live " + (quality4K ? "4K HEVC" : "1080p H.264") + " video and AAC device audio")
@@ -133,9 +140,11 @@ final class MirrorSession: ObservableObject {
     func stop() {
         generation = UUID()
         refreshTask?.cancel()
+        #if !targetEnvironment(simulator)
         if #available(iOS 27.0, *), let engine = capture as? IOS27CaptureEngine {
             engine.stop()
         }
+        #endif
         capture = nil
         cast.stop()
         http?.stop()
@@ -148,6 +157,7 @@ final class MirrorSession: ObservableObject {
 
 /// Capture implementation available only on iOS 27+. No ReplayKit extension,
 /// app group, background relay server, or private screen APIs.
+#if !targetEnvironment(simulator)
 @available(iOS 27.0, *)
 @MainActor
 final class IOS27CaptureEngine: NSObject, SCContentSharingPickerObserver, SCStreamDelegate {
@@ -249,3 +259,5 @@ private final class MirrorFrameOutput: NSObject, SCStreamOutput {
         }
     }
 }
+
+#endif
