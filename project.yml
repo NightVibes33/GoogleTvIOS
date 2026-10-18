@@ -45,7 +45,7 @@ targets:
       - package: AndroidTVRemoteControl
       - package: GoogleCast
       - package: Sentry
-        product: SentrySPM
+        product: Sentry
     info:
       path: App/Info.plist
       properties:

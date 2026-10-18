@@ -325,33 +325,45 @@ final class CastRealtimeWire {
     }
 
     private func encrypt(frameID: UInt32, source: Data, key: Data, ivMask: Data) -> Data? {
-        guard key.count == 16, ivMask.count == 16 else { return nil }
-        var counter = [UInt8](repeating: 0, count: 16)
+        guard key.count == kCCKeySizeAES128, ivMask.count == kCCBlockSizeAES128 else {
+            return nil
+        }
+        // Open Screen's per-frame AES-CTR nonce: write the full frame ID in
+        // big-endian at counter offset eight and XOR with the negotiated mask.
+        var counter = [UInt8](repeating: 0, count: kCCBlockSizeAES128)
         let frameWord = frameID.bigEndian
-        withUnsafeBytes(of: frameWord) { bytes in
-            for i in 0..<4 { counter[8 + i] = bytes[i] }
+        withUnsafeBytes(of: frameWord) { value in
+            for i in 0..<4 { counter[8 + i] = value[i] }
         }
-        for i in 0..<16 { counter[i] ^= ivMask[i] }
-        let bytes = [UInt8](source)
-        var output = [UInt8](repeating: 0, count: bytes.count)
-        for start in stride(from: 0, to: bytes.count, by: 16) {
-            var encrypted = [UInt8](repeating: 0, count: 16)
-            var used = 0
-            let status: CCCryptorStatus = key.withUnsafeBytes { keyPtr in
-                CCCrypt(CCOperation(kCCEncrypt), CCAlgorithm(kCCAlgorithmAES),
-                        CCOptions(kCCOptionECBMode), keyPtr.baseAddress, 16, nil,
-                        counter, 16, &encrypted, 16, &used)
-            }
-            guard status == kCCSuccess, used == 16 else { return nil }
-            for offset in 0..<min(16, bytes.count - start) {
-                output[start + offset] = bytes[start + offset] ^ encrypted[offset]
-            }
-            for i in stride(from: 15, through: 0, by: -1) {
-                counter[i] &+= 1
-                if counter[i] != 0 { break }
+        for i in 0..<counter.count { counter[i] ^= ivMask[i] }
+
+        // Critical performance fix: CommonCrypto encrypts an entire frame
+        // in one AES-CTR context. Previously a new AES key schedule was
+        // created for every 16-byte block, severely limiting real-time FPS.
+        var cryptor: CCCryptorRef?
+        let status: CCCryptorStatus = counter.withUnsafeBytes { iv in
+            key.withUnsafeBytes { rawKey in
+                CCCryptorCreateWithMode(
+                    CCOperation(kCCEncrypt), CCMode(kCCModeCTR),
+                    CCAlgorithm(kCCAlgorithmAES), CCPadding(ccNoPadding),
+                    iv.baseAddress, rawKey.baseAddress, key.count,
+                    nil, 0, 0, CCModeOptions(kCCModeOptionCTR_BE),
+                    &cryptor
+                )
             }
         }
-        return Data(output)
+        guard status == kCCSuccess, let cryptor else { return nil }
+        defer { CCCryptorRelease(cryptor) }
+        var result = Data(count: source.count)
+        var outputLength = 0
+        let resultStatus: CCCryptorStatus = result.withUnsafeMutableBytes { target in
+            source.withUnsafeBytes { bytes in
+                CCCryptorUpdate(cryptor, bytes.baseAddress, source.count,
+                                target.baseAddress, target.count, &outputLength)
+            }
+        }
+        guard resultStatus == kCCSuccess, outputLength == source.count else { return nil }
+        return result
     }
 
     func stop() {
