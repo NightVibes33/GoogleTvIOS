@@ -23,6 +23,7 @@ final class MirrorSession: ObservableObject {
     private var http: CastHTTPServer?
     private var capture: AnyObject?
     private var generation = UUID()
+    private var encoderFailure: String?
     private var refreshTask: Task<Void, Never>?
 
     init() {
@@ -41,6 +42,7 @@ final class MirrorSession: ObservableObject {
     func record(_ message: String) {
         status = message
         events.append(Date().formatted(date: .numeric, time: .standard) + "  " + message)
+        CastDeckLog.shared.write("mirror", message)
         if events.count > 250 { events.removeFirst(events.count - 250) }
     }
 
@@ -76,6 +78,7 @@ final class MirrorSession: ObservableObject {
         let current = generation
         isStarting = true
         error = nil
+        encoderFailure = nil
         store.reset()
         record("Starting local HLS server; app audio capture enabled")
         Task {
@@ -86,10 +89,14 @@ final class MirrorSession: ObservableObject {
                 guard generation == current, let url = URL(string: urlString) else { return }
                 record("Local stream ready: " + urlString)
                 let encoder = CastHLSEncoder(store: store, quality4K: quality4K)
+                encoder.onStatus = { [weak self] message in
+                    Task { @MainActor in self?.record(message) }
+                }
                 encoder.onError = { [weak self] message in
                     Task { @MainActor in
+                        self?.encoderFailure = message
                         self?.error = message
-                        self?.record("HLS encoder: " + message)
+                        self?.record("HLS encoder failed: " + message)
                     }
                 }
                 #if !targetEnvironment(simulator)
@@ -111,9 +118,12 @@ final class MirrorSession: ObservableObject {
                 // to fetch, avoiding an empty-playlist failure on the Chromecast.
                 for _ in 0..<35 {
                     guard generation == current else { return }
+                    if let encoderFailure {
+                        throw MirrorError.writerFailed(encoderFailure)
+                    }
                     if store.segmentCount > 0 { break }
                     if engine.cancelled {
-                        throw MirrorError.writerFailed("Screen-sharing picker was cancelled")
+                        throw MirrorError.writerFailed("Screen sharing ended before video was ready")
                     }
                     try await Task.sleep(nanoseconds: 500_000_000)
                 }
@@ -131,8 +141,8 @@ final class MirrorSession: ObservableObject {
             } catch {
                 guard generation == current else { return }
                 self.error = error.localizedDescription
-                self.record("Mirror start failed: " + error.localizedDescription)
                 self.stop()
+                self.record("Could not start mirroring: " + error.localizedDescription)
             }
         }
     }

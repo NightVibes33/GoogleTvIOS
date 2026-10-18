@@ -19,6 +19,7 @@ final class TVSessionModel: ObservableObject {
     private let client = AndroidTVClient()
     private var connectionTask: Task<Void, Never>?
     private var requestID = UUID()
+    private var didAttemptAutoConnect = false
 
     init() {
         if let data = UserDefaults.standard.data(forKey: "lastDevice"),
@@ -37,6 +38,7 @@ final class TVSessionModel: ObservableObject {
 
     func record(_ line: String) {
         logs.append(Date().formatted(date: .numeric, time: .standard) + "  " + line)
+        CastDeckLog.shared.write("remote", line)
         if logs.count > 300 { logs.removeFirst(logs.count - 300) }
     }
 
@@ -70,6 +72,13 @@ final class TVSessionModel: ObservableObject {
                     $0.host == previouslySelected.host && $0.supportsRemote == previouslySelected.supportsRemote
                }) {
                 selected = updated
+                if !isConnected, !isConnecting,
+                   !isPairing, !didAttemptAutoConnect,
+                   UserDefaults.standard.object(forKey: "autoReconnect") as? Bool ?? true {
+                    didAttemptAutoConnect = true
+                    connect(to: updated)
+                    return
+                }
             }
             if result.devices.contains(where: { !$0.host.isEmpty }) {
                 status = "Found \(result.devices.count) unique TV(s) — choose a TV"
@@ -183,7 +192,7 @@ final class TVSessionModel: ObservableObject {
         Task {
             do {
                 try await client.sendKey(key)
-                status = "Sent " + key.rawValue
+                // Keep protocol keycodes in diagnostics, not the consumer UI.
                 record("Sent " + key.rawValue)
             } catch {
                 isConnected = false
@@ -199,7 +208,6 @@ final class TVSessionModel: ObservableObject {
         Task {
             do {
                 try await client.sendText(text)
-                status = "Keyboard input sent"
                 record("Sent keyboard input (" + String(text.count) + " characters)")
             } catch {
                 lastError = error.localizedDescription

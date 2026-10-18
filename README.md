@@ -86,6 +86,34 @@ share the same display name.
 This discovery strategy was implemented and built for testing, but not yet
 verified on multiple physical Chromecast receivers.
 
+
+## Consumer UI and Files app logging (v1.4)
+
+The first screen is a full-page TV remote. First-time users are shown the
+friendly TV picker; returning users can reconnect automatically to their last
+paired TV without navigating technical menus. Device discovery presents one
+row per physical Chromecast/Google TV. Connection diagnostics, manual
+network addresses, codec information and troubleshooting are behind Help
+disclosure sections rather than cluttering the remote.
+
+The app creates real, rotating text logs in its **Documents/Logs** directory
+when it starts. They are visible at **Files → Browse → On My iPhone →
+CastDeck → Logs** because both `UIFileSharingEnabled` and
+`LSSupportsOpeningDocumentsInPlace` are enabled in XcodeGen's generated
+`Info.plist`. Files include app, remote pairing/commands, screen capture,
+encoding, Cast session and HLS request/errors. The current file rotates at
+2 MiB, retaining three older files. PINs and private keys are never logged.
+Settings → Help & diagnostics has a share action.
+
+The iOS 27 screen-mirroring encoder now anchors HLS fragments at the first
+capture presentation timestamp and reports the full `NSError` domain/code
+and underlying failure. If HEVC 4K fails to initialize it retries once at
+1080p H.264. The HTTP server requires an actual Wi-Fi (`en0`) IPv4
+address, fixes `sockaddr_in.sin_addr` handling and rejects cellular/VPN
+addresses such as the previously observed `16.2.0.0`. We do **not**
+assert successful Chromecast playback or audio synchronization without a
+physical-device test. Protected content may remain unavailable.
+
 ## License
 
 MIT. Independent application; not affiliated with Google.

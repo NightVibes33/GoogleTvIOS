@@ -5,6 +5,7 @@ struct DevicePanel: View {
     @EnvironmentObject private var session: TVSessionModel
     @Environment(\.dismiss) private var dismiss
     @State private var manualIP = ""
+    @State private var troubleshooting = false
     @FocusState private var ipFocused: Bool
 
     var body: some View {
@@ -12,24 +13,16 @@ struct DevicePanel: View {
             List {
                 Section {
                     Button { session.scan() } label: {
-                        HStack {
-                            Label("Scan local network", systemImage: "arrow.clockwise")
+                        HStack(spacing: 12) {
+                            Label(session.isScanning ? "Searching for TVs…" : "Find nearby TVs",
+                                  systemImage: "arrow.clockwise")
                             Spacer()
                             if session.isScanning { ProgressView() }
                         }
                     }
                     .disabled(session.isScanning)
-                    Text(session.discoveryDetails)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Button {
-                        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-                        UIApplication.shared.open(url)
-                    } label: {
-                        Label("Open Local Network permissions", systemImage: "gearshape")
-                    }
                 } footer: {
-                    Text("Keep the TV on and on the same Wi-Fi. If the list is empty, allow Local Network for CastDeck in iPhone Settings, disable guest-network isolation, or enter the TV IP below.")
+                    Text("Keep your TV and iPhone connected to the same Wi-Fi.")
                 }
 
                 if let selected = session.selected {
@@ -40,7 +33,7 @@ struct DevicePanel: View {
                             VStack(alignment: .leading) {
                                 Text(selected.name)
                                     .font(.headline)
-                                Text(selected.host)
+                                Text(session.isConnected ? "Connected" : "Ready to connect")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -94,21 +87,31 @@ struct DevicePanel: View {
                 }
 
                 Section {
-                    HStack {
-                        TextField("TV IP address or hostname", text: $manualIP)
+                    DisclosureGroup(isExpanded: $troubleshooting) {
+                        Text("If your TV does not appear, you can connect using its local IP address.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        TextField("TV IP address", text: $manualIP)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.URL)
                             .focused($ipFocused)
                             .submitLabel(.go)
                             .onSubmit(connectManual)
-                        Button("Connect", action: connectManual)
+                        Button("Connect using IP", action: connectManual)
                             .disabled(manualIP.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Button {
+                            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                            UIApplication.shared.open(url)
+                        } label: {
+                            Label("Check iPhone network access", systemImage: "wifi")
+                        }
+                        Text(session.discoveryDetails)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    } label: {
+                        Label("Can't find your TV?", systemImage: "questionmark.circle")
                     }
-                } header: {
-                    Text("Connect manually")
-                } footer: {
-                    Text("Manual entry uses the Android TV Remote v2 service on TCP port 6466.")
                 }
 
                 if session.isPairing {
@@ -141,7 +144,7 @@ struct DevicePanel: View {
                     }
                 }
             }
-            .navigationTitle("Connect to TV")
+            .navigationTitle("Your TVs")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -170,10 +173,6 @@ struct DevicePanel: View {
                 Text(device.supportsRemote ? "Google TV · Remote + Cast" : "Chromecast · Screen mirroring")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Text(device.host)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
             }
             Spacer(minLength: 2)
             if session.isConnected && session.selected?.host == device.host {

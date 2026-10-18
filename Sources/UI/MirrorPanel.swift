@@ -7,6 +7,7 @@ struct MirrorPanel: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedReceiver: String?
     @State private var scanStarted = false
+    @State private var showingDetails = false
 
     var body: some View {
         NavigationStack {
@@ -34,10 +35,14 @@ struct MirrorPanel: View {
                         Text("Share your iPhone display and supported audio on your television over local Wi-Fi.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        Label(mirror.status, systemImage: mirror.isMirroring ? "dot.radiowaves.left.and.right" : "tv")
-                            .font(.caption)
-                            .foregroundStyle(mirror.isMirroring ? .green : .secondary)
-                            .lineLimit(3)
+                        Label(
+                            mirror.isMirroring ? "Sharing with your TV" :
+                            mirror.isStarting ? "Preparing your screen…" :
+                            mirror.error != nil ? "Could not start sharing" : "Ready to connect",
+                            systemImage: mirror.isMirroring ? "checkmark.circle.fill" : "tv"
+                        )
+                        .font(.subheadline)
+                        .foregroundStyle(mirror.isMirroring ? .green : .secondary)
                     }
                     .padding(.vertical, 8)
                 }
@@ -98,11 +103,10 @@ struct MirrorPanel: View {
                     }
                     .pickerStyle(.segmented)
                     .disabled(mirror.isStarting || mirror.isMirroring)
-                    Text("4K sends a 3840×2160 encoded stream on compatible receivers. Portrait iPhone content is letterboxed to preserve its proportions. Real detail is limited by your iPhone's screen resolution.")
-                        .font(.footnote)
+                    Label("Screen and supported audio", systemImage: "speaker.wave.2.fill")
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    Label("AAC stereo audio · 192 kb/s · original capture timestamps",
-                          systemImage: "speaker.wave.2.fill")
+                    Text("1080p works with more TVs. 4K is experimental and may switch to 1080p if your iPhone can't start the higher-quality stream.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -137,13 +141,25 @@ struct MirrorPanel: View {
                             .foregroundStyle(.red)
                     }
                 } footer: {
-                    Text("Screen sharing requires iOS 27. Protected video/audio may not be capturable. Live HLS adds playback delay, and audio/video quality depends on the receiver and Wi-Fi. No external server is used.")
+                    Text("Mirroring requires iOS 27. Your iPhone will ask permission before sharing. Some protected video or audio cannot be shared.")
                 }
 
-                Section("Diagnostics") {
-                    LabeledContent("HLS segments", value: String(mirror.isMirroring ? "Streaming" : "Idle"))
-                    ShareLink(item: mirror.diagnosticText) {
-                        Label("Export mirroring log", systemImage: "square.and.arrow.up")
+                Section {
+                    DisclosureGroup(isExpanded: $showingDetails) {
+                        Text(mirror.status)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Text("Detailed logs are automatically saved to Files → On My iPhone → CastDeck → Logs.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        ShareLink(item: CastDeckLog.shared.currentLogURL) {
+                            Label("Share log file", systemImage: "square.and.arrow.up")
+                        }
+                        ShareLink(item: mirror.diagnosticText) {
+                            Label("Share mirror report", systemImage: "doc.text")
+                        }
+                    } label: {
+                        Label("Having trouble?", systemImage: "questionmark.circle")
                     }
                 }
             }

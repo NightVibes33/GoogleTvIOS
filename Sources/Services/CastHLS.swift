@@ -97,7 +97,9 @@ final class CastHTTPServer {
                         listener.cancel()
                         return
                     }
-                    continuation.resume(returning: "http://\(address):\(self.port)/live.m3u8")
+                    let url = "http://\(address):\(self.port)/live.m3u8"
+                    CastDeckLog.shared.write("mirror", "LAN HLS server bound to " + url)
+                    continuation.resume(returning: url)
                 case .failed(let error):
                     guard !delivered else { return }
                     delivered = true
@@ -142,6 +144,9 @@ final class CastHTTPServer {
             }
             let path = String(urlPart.split(separator: "?").first ?? "")
             let response = self.store.resource(path)
+            if path == "/live.m3u8" || response == nil {
+                CastDeckLog.shared.write("cast-http", "GET " + path + " → " + (response == nil ? "404" : "200"))
+            }
             let body = response?.body ?? Data("Not found".utf8)
             let mime = response?.mime ?? "text/plain"
             let code = response == nil ? "404 Not Found" : "200 OK"
@@ -153,29 +158,32 @@ final class CastHTTPServer {
         }
     }
 
-    /// Chromecast must reach the host through a LAN address, not 127.0.0.1.
+    /// Return the *actual* Wi-Fi address, never a cellular, VPN, or bridge
+    /// address. An earlier version passed sockaddr into inet_ntop instead
+    /// of sockaddr_in.sin_addr and produced unreachable URLs like 16.2.0.0.
     private static func wifiIPv4() -> String? {
-        var first: String?
         var interfaces: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&interfaces) == 0, let interfaces else { return nil }
+        guard getifaddrs(&interfaces) == 0 else { return nil }
         defer { freeifaddrs(interfaces) }
-        var ptr: UnsafeMutablePointer<ifaddrs>? = interfaces
-        while let current = ptr {
-            let item = current.pointee
-            if let addr = item.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) {
-                let name = String(cString: item.ifa_name)
-                let flags = Int32(item.ifa_flags)
-                if (flags & IFF_LOOPBACK) == 0 && (flags & IFF_UP) != 0 {
-                    var address = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-                    _ = inet_ntop(AF_INET, UnsafeRawPointer(addr), &address, socklen_t(INET_ADDRSTRLEN))
-                    let ip = String(cString: address)
-                    if name == "en0" { return ip }
-                    if first == nil { first = ip }
-                }
+        var cursor = interfaces
+        while let current = cursor {
+            defer { cursor = current.pointee.ifa_next }
+            guard String(cString: current.pointee.ifa_name) == "en0",
+                  let socket = current.pointee.ifa_addr,
+                  Int32(socket.pointee.sa_family) == AF_INET,
+                  (Int32(current.pointee.ifa_flags) & IFF_UP) != 0 else { continue }
+            let internet = UnsafeRawPointer(socket).assumingMemoryBound(to: sockaddr_in.self)
+            var address = internet.pointee.sin_addr
+            var output = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+            guard inet_ntop(AF_INET, &address, &output, socklen_t(INET_ADDRSTRLEN)) != nil else {
+                continue
             }
-            ptr = item.ifa_next
+            let result = String(cString: output)
+            if result != "0.0.0.0" && !result.hasPrefix("169.254.") {
+                return result
+            }
         }
-        return first
+        return nil
     }
 }
 
@@ -202,7 +210,10 @@ final class CastHLSEncoder {
     let queue = DispatchQueue(label: "castdeck.hls.encoder", qos: .userInitiated)
     private let store: LiveHLSStore
     private let context = CIContext(options: [.useSoftwareRenderer: false])
-    private let quality4K: Bool
+    private var quality4K: Bool
+    private var failed = false
+    private var didFallback = false
+    var onStatus: ((String) -> Void)?
     private var writer: AVAssetWriter?
     private var video: AVAssetWriterInput?
     private var audio: AVAssetWriterInput?
@@ -219,30 +230,53 @@ final class CastHLSEncoder {
     }
 
     func process(_ sample: CMSampleBuffer, audio isAudio: Bool) {
-        guard CMSampleBufferIsValid(sample) else { return }
+        guard !failed, CMSampleBufferIsValid(sample) else { return }
         if writer == nil {
             guard !isAudio else { return }
-            do { try configure() }
-            catch { onError?(error.localizedDescription); return }
+            do { try configure(firstTimestamp: CMSampleBufferGetPresentationTimeStamp(sample)) }
+            catch { reportFailure(error.localizedDescription); return }
         }
         guard let writer, let video, let audio, let adaptor else { return }
         let time = CMSampleBufferGetPresentationTimeStamp(sample)
         guard time.isValid else { return }
         if writer.status == .unknown {
             guard !isAudio else { return }
-            guard writer.startWriting() else {
-                onError?(writer.error?.localizedDescription ?? "Unable to start HLS writer")
-                return
+            if !writer.startWriting() {
+                let detail = writerFailureDetails(writer)
+                if quality4K && !didFallback {
+                    didFallback = true
+                    quality4K = false
+                    onStatus?("4K could not start (\(detail)). Retrying automatically at 1080p.")
+                    writer.cancelWriting()
+                    self.writer = nil
+                    self.video = nil
+                    self.audio = nil
+                    self.adaptor = nil
+                    do { try configure(firstTimestamp: time) }
+                    catch { reportFailure("1080p fallback setup failed: " + error.localizedDescription); return }
+                    guard let fallback = self.writer, fallback.startWriting() else {
+                        reportFailure("4K failed: \(detail). 1080p failed: " +
+                                      (self.writer.map(writerFailureDetails) ?? "writer unavailable"))
+                        return
+                    }
+                    fallback.startSession(atSourceTime: time)
+                    startedAt = time
+                    return process(sample, audio: isAudio)
+                } else {
+                    reportFailure(detail)
+                    return
+                }
+            } else {
+                writer.startSession(atSourceTime: time)
+                startedAt = time
             }
-            writer.startSession(atSourceTime: time)
-            startedAt = time
         }
         guard writer.status == .writing, let start = startedAt,
               CMTimeCompare(time, start) >= 0 else { return }
 
         if isAudio {
             if audio.isReadyForMoreMediaData && !audio.append(sample) {
-                onError?(writer.error?.localizedDescription ?? "Audio append failed")
+                reportFailure("Audio append: " + writerFailureDetails(writer))
             }
         } else if video.isReadyForMoreMediaData,
                   let image = CMSampleBufferGetImageBuffer(sample),
@@ -264,16 +298,17 @@ final class CastHLSEncoder {
                 .cropped(to: CGRect(origin: .zero, size: size))
             context.render(scaled.composited(over: background), to: destination)
             if !adaptor.append(destination, withPresentationTime: time) {
-                onError?(writer.error?.localizedDescription ?? "Video append failed")
+                reportFailure("Video append: " + writerFailureDetails(writer))
             }
         }
     }
 
-    private func configure() throws {
+    private func configure(firstTimestamp: CMTime) throws {
         let size = outputSize
-        let writer = AVAssetWriter(contentType: UTType(AVFileType.mp4.rawValue)!)
+        let writer = AVAssetWriter(contentType: .mpeg4Movie)
         writer.outputFileTypeProfile = .mpeg4AppleHLS
-        writer.preferredOutputSegmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
+        writer.preferredOutputSegmentInterval = CMTime(seconds: 2, preferredTimescale: 1)
+        writer.initialSegmentStartTime = firstTimestamp
         writer.delegate = store
         let compression: [String: Any] = [
             AVVideoAverageBitRateKey: quality4K ? 18_000_000 : 6_000_000,
@@ -296,6 +331,9 @@ final class CastHLSEncoder {
             AVEncoderBitRateKey: 192_000
         ])
         audio.expectsMediaDataInRealTime = true
+        guard writer.canApply(outputSettings: settings, forMediaType: .video) else {
+            throw MirrorError.writerFailed("Hardware video settings unsupported for " + String(Int(size.width)) + "×" + String(Int(size.height)))
+        }
         guard writer.canAdd(video), writer.canAdd(audio) else {
             throw MirrorError.writerFailed("Unsupported HLS video/audio settings")
         }
@@ -314,6 +352,24 @@ final class CastHLSEncoder {
         self.video = video
         self.audio = audio
         self.adaptor = adaptor
+    }
+
+    private func reportFailure(_ message: String) {
+        guard !failed else { return }
+        failed = true
+        onError?(message)
+    }
+
+    private func writerFailureDetails(_ writer: AVAssetWriter) -> String {
+        guard let error = writer.error as NSError? else {
+            return "AVAssetWriter did not start (status " + String(writer.status.rawValue) + ")"
+        }
+        let reason = (error.userInfo[NSUnderlyingErrorKey] as? NSError)
+        let underlying = reason.map {
+            " | underlying " + $0.domain + " " + String($0.code) + ": " + $0.localizedDescription
+        } ?? ""
+        return error.domain + " " + String(error.code) + ": " + error.localizedDescription +
+               underlying
     }
 
     func stop() {

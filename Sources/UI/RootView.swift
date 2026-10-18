@@ -65,6 +65,7 @@ struct RootView: View {
             guard !scanned else { return }
             scanned = true
             if autoScan { session.scan() }
+            if session.selected == nil { devicePicker = true }
         }
     }
 
@@ -78,7 +79,7 @@ struct RootView: View {
                         Text(session.selected?.name ?? "Choose a TV")
                             .font(.system(size: 17, weight: .semibold))
                             .lineLimit(1)
-                        Text(session.isConnected ? "Google TV remote" : "Tap to connect")
+                        Text(session.isConnected ? "Connected" : "Tap to connect")
                             .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.57))
                     }

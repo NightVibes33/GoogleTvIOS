@@ -27,6 +27,8 @@
     <array><string>screen-capture</string></array>
     <key>NSAppTransportSecurity</key>
     <dict><key>NSAllowsLocalNetworking</key><true/></dict>
+    <key>UIFileSharingEnabled</key><true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key><true/>
     <key>UILaunchScreen</key>
     <dict><key>UIColorName</key><string>Background</string></dict>
     <key>UISupportedInterfaceOrientations</key>

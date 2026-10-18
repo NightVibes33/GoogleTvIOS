@@ -21,6 +21,11 @@ jobs:
           grep -Eq 'iphoneos27([.]|$)' /tmp/sdks.txt
       - name: Install XcodeGen
         run: brew install xcodegen
+      - name: Generate branded App Store icon
+        run: |
+          swift scripts/create_app_icon.swift
+          test -s App/Assets.xcassets/AppIcon.appiconset/CastDeckIcon.png
+          sips -g pixelWidth -g pixelHeight App/Assets.xcassets/AppIcon.appiconset/CastDeckIcon.png
       - name: Generate Xcode project
         run: xcodegen generate --spec project.yml
       - name: Resolve Swift packages
@@ -51,10 +56,12 @@ jobs:
           description = info.get("NSLocalNetworkUsageDescription", "")
           assert expected.issubset(services), f"Missing Bonjour service types: {expected - services}"
           assert isinstance(description, str) and description.strip(), "Missing NSLocalNetworkUsageDescription"
-          assert info.get("CFBundleShortVersionString") == "1.3.0", f"Unexpected version: {info.get('CFBundleShortVersionString')}"
-          assert str(info.get("CFBundleVersion")) == "5", f"Unexpected build number: {info.get('CFBundleVersion')}"
+          assert info.get("CFBundleShortVersionString") == "1.4.0", f"Unexpected version: {info.get('CFBundleShortVersionString')}"
+          assert str(info.get("CFBundleVersion")) == "6", f"Unexpected build number: {info.get('CFBundleVersion')}"
           assert info.get("NSScreenCaptureUsageDescription"), "Missing ScreenCaptureKit usage description"
           assert "screen-capture" in info.get("UIBackgroundModes", []), "Missing iOS 27 capture background mode"
+          assert info.get("UIFileSharingEnabled") is True, "Files app access disabled"
+          assert info.get("LSSupportsOpeningDocumentsInPlace") is True, "Documents cannot be opened in Files"
           print("Packaged Info.plist verified: Bonjour, ScreenCaptureKit, background mode, version/build")
           PY
       - uses: actions/upload-artifact@v4
