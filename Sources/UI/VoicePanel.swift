@@ -220,9 +220,9 @@ struct VoicePanel: View {
                 ProgressView()
             }
             if let error = voice.error {
-                Text(error)
+                Text(ConsumerHelp.message(for: error))
                     .font(.footnote)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 20)
             }

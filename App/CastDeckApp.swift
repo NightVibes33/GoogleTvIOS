@@ -7,6 +7,7 @@ struct CastDeckApp: App {
 
     init() {
         CastDeckLog.shared.write("app", "CastDeck started")
+        CastDeckDiagnostics.shared.configure()
     }
 
     private var scheme: ColorScheme? {

@@ -136,7 +136,7 @@ struct MirrorPanel: View {
                         .disabled(selectedReceiver == nil)
                     }
                     if let error = mirror.error {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                        Label(ConsumerHelp.message(for: error), systemImage: "exclamationmark.circle")
                             .font(.footnote)
                             .foregroundStyle(.red)
                     }

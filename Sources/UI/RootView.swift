@@ -134,7 +134,7 @@ struct RootView: View {
                 Button {
                     devicePicker = true
                 } label: {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                    Label(ConsumerHelp.message(for: error), systemImage: "wifi.exclamationmark")
                         .font(.caption)
                         .foregroundStyle(Color(red: 1, green: 0.72, blue: 0.65))
                         .lineLimit(2)

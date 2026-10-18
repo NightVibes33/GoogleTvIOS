@@ -91,6 +91,7 @@ final class RealtimeMirrorSession: ObservableObject {
                 self.stop()
                 self.error = message
                 self.log("Native Cast Streaming failed: " + message)
+                CastDeckDiagnostics.shared.report("mirroring")
             }
         }
         sender.onKeyframeNeeded = { [weak self] in
@@ -159,6 +160,7 @@ final class RealtimeMirrorSession: ObservableObject {
                         self.stop()
                         self.error = message
                         self.log("iPhone capture ended: " + message)
+                        CastDeckDiagnostics.shared.report("mirroring")
                     }
                 }
                 capture.presentPicker()

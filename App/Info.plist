@@ -12,6 +12,7 @@
     <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
     <key>LSRequiresIPhoneOS</key><true/>
+    <key>CastDeckSentryDSN</key><string></string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>CastDeck discovers Google TV and Chromecast devices on your local network and connects to compatible Google TV remotes.</string>
     <key>NSBonjourServices</key>

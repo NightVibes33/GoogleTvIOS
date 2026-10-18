@@ -78,6 +78,13 @@ struct RemotePanel: View {
         .sheet(isPresented: $showingMicrophone) {
             VoicePanel(voice: microphone).environmentObject(session)
         }
+        .onChange(of: session.keyboardRequestID) { _, _ in
+            guard session.isConnected else { return }
+            showingKeyboard = true
+        }
+        .onChange(of: session.isConnected) { _, connected in
+            if !connected { showingKeyboard = false }
+        }
     }
 
     private var directionalPad: some View {

@@ -17,6 +17,9 @@ packages:
   AndroidTVRemoteControl:
     url: https://github.com/odyshewroman/AndroidTVRemoteControl
     from: 2.0.0
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    from: 9.30.1
 targets:
   CastDeck:
     type: application
@@ -34,17 +37,20 @@ targets:
       TARGETED_DEVICE_FAMILY: "1,2"
       SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
       GENERATE_INFOPLIST_FILE: false
-      CURRENT_PROJECT_VERSION: 11
-      MARKETING_VERSION: "2.0.0"
+      CURRENT_PROJECT_VERSION: 12
+      MARKETING_VERSION: "2.1.0"
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       CODE_SIGN_STYLE: Automatic
     dependencies:
       - package: AndroidTVRemoteControl
       - package: GoogleCast
+      - package: Sentry
+        product: SentrySPM
     info:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: CastDeck
+        CastDeckSentryDSN: ""
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSMicrophoneUsageDescription: CastDeck uses your iPhone microphone only when you start voice search on your connected Google TV.

@@ -241,3 +241,54 @@ Protocol sources:
 - https://chromium.googlesource.com/openscreen/+/refs/heads/main/cast/protocol/streaming_session_protocol.md
 - https://github.com/chromium/openscreen
 - https://github.com/RikvdReijen/classic-chromecast-caster
+
+## Consumer remote, native Google TV keyboard and fleet diagnostics (v2.1)
+
+**Keyboard:** CastDeck now receives Android TV Remote v2 messages
+`RemoteImeShowRequest` (22), `RemoteImeKeyInject` (20) and
+`RemoteImeBatchEdit` (21) on its existing paired TLS transport. The TV
+specifies active input field and IME counters. Opening a text field on
+the TV can automatically open the iPhone system keyboard. Text is
+inserted using `RemoteImeBatchEdit` with the current TV field counters,
+rather than lossy A–Z key presses. Delete and Enter use TV keycodes.
+Compatibility depends on the running Google TV application and its
+Remote Service IME support. No typed text is written to log files.
+
+**App Store presentation:** Root remote, device picker, voice and
+mirroring screens show concise action-oriented recovery messages. Raw
+error codes and network metadata are reserved for the locally stored
+diagnostic logs (Files → On My iPhone → CastDeck → Logs).
+
+**Crash and issue telemetry:** Optional Sentry Cocoa SDK is wired for
+crash reports, App Store release grouping and coarse issue-code events.
+Users control sharing under Settings → Help improve CastDeck. It is
+disabled by default. No screen capture, microphone samples, keyboard
+contents, pairing PINs, keys, or complete local logs are intentionally
+sent automatically. It does not identify TV addresses in custom event
+messages; incident categories are fixed strings.
+
+**IMPORTANT: publisher configuration needed before fleet reporting works.**
+The bundled `CastDeckSentryDSN` is blank. Create a private Sentry
+project and provide its **public DSN** in the `CastDeckSentryDSN`
+Info.plist property under `project.yml` before a release build.
+Do **not** embed Sentry organization auth tokens or personal API keys.
+Without a configured DSN, automatic reporting cannot send any data,
+and the Settings toggle is disabled. For usable stack traces in the
+Sentry dashboard, upload dSYM files in CI with a separately stored
+authentication token, the Sentry CLI, and the exact release version.
+Set issue alert rules, release health thresholds, data retention limits,
+and an access policy in Sentry. Keep App Store Connect's app-privacy
+disclosures and your public privacy policy aligned with what the SDK
+collects.
+
+**Shipping updates:** Future versions should use the App Store or
+TestFlight with signed CI archives, incremental rollout and release
+notes. CastDeck cannot silently replace itself on consumers' iPhones.
+Unsigned SideStore IPAs are suitable for personal testing, not a
+substitute for App Store distribution.
+
+**References:** Google Remote Service
+https://play.google.com/store/apps/details?id=com.google.android.tv.remote.service,
+Android TV Remote v2 messages
+https://github.com/tronikos/androidtvremote2/blob/main/src/androidtvremote2/remotemessage.proto,
+Sentry Cocoa SDK https://github.com/getsentry/sentry-cocoa .

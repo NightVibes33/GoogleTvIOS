@@ -23,6 +23,10 @@ final class AndroidTVRemoteBridge {
     private var pendingVoice: CheckedContinuation<UInt32, Error>?
     private var voiceSession: UInt32?
     private var voiceSequence = 0
+    private var imeContext = TVIMEWire.Context()
+    private var remoteMessageBuffer = Data()
+    var onKeyboardRequested: ((String) -> Void)?
+    var onKeyboardStatus: ((Bool, String) -> Void)?
     var onConnectionLost: ((String) -> Void)?
 
     init() throws {
@@ -62,11 +66,13 @@ final class AndroidTVRemoteBridge {
         self.host = host
         connected = false
         voiceBuffer.removeAll()
+        remoteMessageBuffer.removeAll()
+        imeContext = TVIMEWire.Context()
         voiceSession = nil
         remote.receiveData = { [weak self] data, error in
             guard let data, error == nil else { return }
             Task { @MainActor [weak self] in
-                self?.receiveVoiceBytes(data)
+                self?.receiveRemoteBytes(data)
             }
         }
         let id = operationID
@@ -211,23 +217,35 @@ final class AndroidTVRemoteBridge {
         voiceBuffer.removeAll()
     }
 
-    private func receiveVoiceBytes(_ bytes: Data) {
-        guard pendingVoice != nil else { return }
-        voiceBuffer.append(bytes)
-        if voiceBuffer.count > 128 * 1024 {
-            voiceBuffer.removeAll()
-            failVoice(AndroidTVClientError.underlying("Malformed TV microphone response."))
+    private func receiveRemoteBytes(_ bytes: Data) {
+        guard connected else { return }
+        remoteMessageBuffer.append(bytes)
+        if remoteMessageBuffer.count > 128 * 1024 {
+            remoteMessageBuffer.removeAll()
+            failVoice(AndroidTVClientError.underlying("Unexpected TV response."))
             return
         }
-        while let message = TVVoiceWire.nextMessage(from: &voiceBuffer) {
+        while let message = TVVoiceWire.nextMessage(from: &remoteMessageBuffer) {
             if let sessionID = TVVoiceWire.voiceBeginSessionID(in: message) {
                 let pending = pendingVoice
                 pendingVoice = nil
                 pending?.resume(returning: sessionID)
-                return
+            }
+            for update in TVIMEWire.updates(in: message) {
+                if let counter = update.imeCounter { imeContext.imeCounter = counter }
+                if let counter = update.fieldCounter { imeContext.fieldCounter = counter }
+                if let label = update.label { imeContext.label = label }
+                if update.fieldActive { imeContext.hasFocusedField = true }
+                if update.showKeyboard {
+                    onKeyboardRequested?(imeContext.label)
+                }
+                if update.fieldActive {
+                    onKeyboardStatus?(true, imeContext.label)
+                }
             }
         }
     }
+
 
     private func failVoice(_ error: Error) {
         let pending = pendingVoice
@@ -235,27 +253,22 @@ final class AndroidTVRemoteBridge {
         pending?.resume(throwing: error)
     }
 
+    /// Full Unicode Android TV Remote Service IME input, using the same
+    /// remote_ime_batch_edit messages as Google's virtual remote app.
+    /// The field counters come from the TV's current focused text field.
     func sendText(_ value: String) async throws {
         guard connected else { throw AndroidTVClientError.notConnected }
-        guard !value.isEmpty, value.unicodeScalars.count <= 200 else {
-            throw AndroidTVClientError.underlying("Enter 1–200 characters.")
+        guard !value.isEmpty, value.utf8.count <= 2048 else {
+            throw AndroidTVClientError.underlying("Your message is too long.")
         }
-        // The upstream API supports Android KeyPress commands but has no text-input payload.
-        // Validate every character before transmitting any events.
-        let keys: [Key] = try value.unicodeScalars.map { scalar in
-            switch scalar.value {
-            case 65...90: return Key(rawValue: UInt(scalar.value - 65 + 29))!
-            case 97...122: return Key(rawValue: UInt(scalar.value - 97 + 29))!
-            case 48...57: return Key(rawValue: UInt(scalar.value - 48 + 7))!
-            case 32: return .KEYCODE_SPACE
-            case 10, 13: return .KEYCODE_ENTER
-            default: throw AndroidTVClientError.underlying(
-                "Keyboard currently supports A–Z, 0–9, spaces and new lines."
-            )
-            }
+        guard imeContext.hasFocusedField else {
+            throw AndroidTVClientError.underlying("Select a text field on your television first.")
         }
-        for key in keys { remote.send(KeyPress(key)) }
+        // The Android TV service performs the text insertion on its own
+        // screen; CastDeck never logs or uploads entered text.
+        remote.send(TVIMEWire.frame(TVIMEWire.text(value, context: imeContext)))
     }
+
 
     func launchApp(_ appId: String) async throws {
         guard connected else { throw AndroidTVClientError.notConnected }
@@ -275,6 +288,9 @@ final class AndroidTVRemoteBridge {
         pairing.stateChanged = nil
         remote.stateChanged = nil
         remote.receiveData = nil
+        imeContext = TVIMEWire.Context()
+        remoteMessageBuffer.removeAll()
+        onKeyboardStatus?(false, "")
         pairing.disconnect()
         remote.disconnect()
         connected = false

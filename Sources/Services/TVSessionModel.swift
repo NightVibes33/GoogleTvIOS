@@ -33,6 +33,7 @@ final class TVSessionModel: ObservableObject {
             self.status = "Connection lost"
             self.lastError = reason
             self.record("Remote disconnected: " + reason)
+            CastDeckDiagnostics.shared.report("connection")
         }
     }
 
@@ -136,6 +137,7 @@ final class TVSessionModel: ObservableObject {
                     status = "Connection failed"
                     lastError = error.localizedDescription
                     record("Pairing could not start: " + error.localizedDescription)
+                    CastDeckDiagnostics.shared.report("pairing")
                 }
             }
         }
@@ -170,6 +172,7 @@ final class TVSessionModel: ObservableObject {
                 status = "Pairing failed — reconnect to retry"
                 lastError = error.localizedDescription
                 record("PIN verification failed: " + error.localizedDescription)
+                CastDeckDiagnostics.shared.report("pairing")
             }
         }
     }
@@ -227,6 +230,7 @@ final class TVSessionModel: ObservableObject {
             } catch {
                 lastError = error.localizedDescription
                 record("Keyboard command failed: " + error.localizedDescription)
+                CastDeckDiagnostics.shared.report("keyboard")
             }
         }
     }

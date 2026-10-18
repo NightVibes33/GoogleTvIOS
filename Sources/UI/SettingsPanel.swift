@@ -10,6 +10,7 @@ struct SettingsPanel: View {
     @AppStorage("controlMode") private var controlMode = "dpad"
     @State private var showingDevices = false
     @State private var showDiagnostics = false
+    @AppStorage("shareDiagnostics") private var shareDiagnostics = false
 
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
@@ -61,6 +62,23 @@ struct SettingsPanel: View {
                     Toggle("Find TVs automatically", isOn: $autoScan)
                 }
 
+                Section("Help improve CastDeck") {
+                    Toggle("Share crash and issue reports", isOn: $shareDiagnostics)
+                        .disabled(!CastDeckDiagnostics.shared.canSendReports)
+                        .onChange(of: shareDiagnostics) { _, _ in
+                            CastDeckDiagnostics.shared.configure()
+                        }
+                    Text(CastDeckDiagnostics.shared.canSendReports
+                         ? "Helps fix crashes and connection problems. Reports include app version and issue categories. PINs, typed text, audio, screen images and log files are never automatically attached."
+                         : "Automatic reporting will be available when CastDeck's support service is configured. You can still share a log file manually.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Label("Your existing logs always stay in Files unless you choose to share them.",
+                          systemImage: "lock.shield")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section {
                     DisclosureGroup(isExpanded: $showDiagnostics) {
                         VStack(alignment: .leading, spacing: 9) {
@@ -69,7 +87,7 @@ struct SettingsPanel: View {
                                 .foregroundStyle(.secondary)
                             LabeledContent("Discovered TVs", value: "\(session.devices.count)")
                             LabeledContent("Network", value: session.isConnected ? "Connected" : "Not connected")
-                            Text("Logs are stored only on this iPhone. Pairing codes and private keys are never written.")
+                            Text("Technical logs stay on your iPhone until you choose to share them. Pairing codes and private keys are never intentionally logged.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
@@ -90,6 +108,9 @@ struct SettingsPanel: View {
                 Section {
                     LabeledContent("App", value: "CastDeck")
                     LabeledContent("Version", value: version)
+                    Text("App updates are delivered through the App Store when CastDeck is published.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     Text("A simple remote for compatible Google TV and Chromecast devices. Not affiliated with Google.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)

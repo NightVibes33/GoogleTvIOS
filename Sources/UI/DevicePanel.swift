@@ -127,7 +127,7 @@ struct DevicePanel: View {
                         } label: {
                             Label("Check iPhone network access", systemImage: "wifi")
                         }
-                        Text(session.discoveryDetails)
+                        Text("If your TV doesn't appear, check that both devices are on the same Wi-Fi.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     } label: {
@@ -159,7 +159,7 @@ struct DevicePanel: View {
                 }
                 if let error = session.lastError {
                     Section("Connection details") {
-                        Label(error, systemImage: "exclamationmark.triangle")
+                        Label(ConsumerHelp.message(for: error), systemImage: "wifi.exclamationmark")
                             .font(.footnote)
                             .foregroundStyle(.red)
                     }

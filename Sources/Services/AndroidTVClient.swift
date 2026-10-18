@@ -19,11 +19,17 @@ enum AndroidTVClientError: LocalizedError {
 final class AndroidTVClient {
     private var bridge: AndroidTVRemoteBridge?
     var onConnectionLost: ((String) -> Void)?
+    var onKeyboardRequested: ((String) -> Void)?
+    var onKeyboardStatus: ((Bool, String) -> Void)?
 
     private func transport() throws -> AndroidTVRemoteBridge {
         if let bridge { return bridge }
         let created = try AndroidTVRemoteBridge()
         created.onConnectionLost = { [weak self] message in self?.onConnectionLost?(message) }
+        created.onKeyboardRequested = { [weak self] label in self?.onKeyboardRequested?(label) }
+        created.onKeyboardStatus = { [weak self] active, label in
+            self?.onKeyboardStatus?(active, label)
+        }
         bridge = created
         return created
     }
