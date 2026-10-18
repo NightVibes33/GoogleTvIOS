@@ -78,7 +78,7 @@ struct DevicePanel: View {
                     }
                 }
 
-                Section("Connect manually") {
+                Section {
                     HStack {
                         TextField("TV IP address or hostname", text: $manualIP)
                             .textInputAutocapitalization(.never)
@@ -90,6 +90,8 @@ struct DevicePanel: View {
                         Button("Connect", action: connectManual)
                             .disabled(manualIP.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
+                } header: {
+                    Text("Connect manually")
                 } footer: {
                     Text("Manual entry uses the Android TV Remote v2 service on TCP port 6466.")
                 }

@@ -4,7 +4,7 @@ import Security
 
 /// Concrete TLS Android TV Remote v2 transport. No simulated success paths.
 @MainActor
-final class AndroidTVRemoteBridge: AndroidTVBridging {
+final class AndroidTVRemoteBridge {
     private let crypto: CryptoManager
     private let tls: TLSManager
     private let pairing: PairingManager
@@ -76,7 +76,7 @@ final class AndroidTVRemoteBridge: AndroidTVBridging {
         }
         try await withCheckedThrowingContinuation { continuation in
             pendingConnect = continuation
-            remote.connect(host, timeout: 12)
+            remote.connect(host)
             scheduleTimeout(id: id, seconds: 13, phase: "TV connection")
         }
     }
@@ -107,7 +107,7 @@ final class AndroidTVRemoteBridge: AndroidTVBridging {
         }
         try await withCheckedThrowingContinuation { continuation in
             pendingPairing = continuation
-            pairing.connect(host, "CastDeck Remote", "iPhone", timeout: 12)
+            pairing.connect(host, "CastDeck Remote", "iPhone")
             scheduleTimeout(id: id, seconds: 13, phase: "PIN pairing")
         }
     }
@@ -169,17 +169,17 @@ final class AndroidTVRemoteBridge: AndroidTVBridging {
         host = nil
     }
 
-    private func completeConnect(_ result: Result<Void, Error>) {
+    private func completeConnect(_ result: Swift.Result<Void, Error>) {
         guard let continuation = pendingConnect else { return }
         pendingConnect = nil
         continuation.resume(with: result)
     }
-    private func completePairing(_ result: Result<Void, Error>) {
+    private func completePairing(_ result: Swift.Result<Void, Error>) {
         guard let continuation = pendingPairing else { return }
         pendingPairing = nil
         continuation.resume(with: result)
     }
-    private func completePIN(_ result: Result<Void, Error>) {
+    private func completePIN(_ result: Swift.Result<Void, Error>) {
         guard let continuation = pendingPIN else { return }
         pendingPIN = nil
         continuation.resume(with: result)
