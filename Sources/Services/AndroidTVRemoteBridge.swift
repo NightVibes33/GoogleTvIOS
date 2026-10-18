@@ -19,6 +19,10 @@ final class AndroidTVRemoteBridge {
     private var pendingPairing: CheckedContinuation<Void, Error>?
     private var pendingPIN: CheckedContinuation<Void, Error>?
     private var operationID = 0
+    private var voiceBuffer = Data()
+    private var pendingVoice: CheckedContinuation<UInt32, Error>?
+    private var voiceSession: UInt32?
+    private var voiceSequence = 0
     var onConnectionLost: ((String) -> Void)?
 
     init() throws {
@@ -57,6 +61,14 @@ final class AndroidTVRemoteBridge {
         resetPending()
         self.host = host
         connected = false
+        voiceBuffer.removeAll()
+        voiceSession = nil
+        remote.receiveData = { [weak self] data, error in
+            guard let data, error == nil else { return }
+            Task { @MainActor [weak self] in
+                self?.receiveVoiceBytes(data)
+            }
+        }
         let id = operationID
         remote.stateChanged = { [weak self] state in
             Task { @MainActor [weak self] in
@@ -148,6 +160,81 @@ final class AndroidTVRemoteBridge {
         remote.send(KeyPress(button))
     }
 
+    /// Search asks Android TV Remote Service to begin a microphone session.
+    /// The television must answer with RemoteVoiceBegin and a session ID.
+    /// Never claim voice is active until this handshake completes.
+    func beginVoice() async throws {
+        guard connected else { throw AndroidTVClientError.notConnected }
+        guard voiceSession == nil, pendingVoice == nil else {
+            throw AndroidTVClientError.underlying("Microphone session is already active.")
+        }
+        voiceBuffer.removeAll()
+        voiceSequence += 1
+        let request = voiceSequence
+        let sessionID: UInt32 = try await withCheckedThrowingContinuation { continuation in
+            pendingVoice = continuation
+            remote.send(KeyPress(.KEYCODE_SEARCH))
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard let self, self.voiceSequence == request else { return }
+                self.failVoice(AndroidTVClientError.underlying(
+                    "The TV did not accept microphone input. Check Google Assistant/voice search support on the TV."
+                ))
+            }
+        }
+        guard connected else { throw AndroidTVClientError.notConnected }
+        voiceSession = sessionID
+        remote.send(TVVoiceWire.begin(sessionID: sessionID))
+    }
+
+    /// Receiver-compatible PCM 16-bit, 8 kHz, mono. The caller groups samples
+    /// into 8192–20480-byte chunks as recommended by Android TV Remote v2.
+    func sendVoicePCM(_ samples: Data) throws {
+        guard connected, let sessionID = voiceSession else {
+            throw AndroidTVClientError.underlying("No active TV voice session.")
+        }
+        guard (8 * 1024...20 * 1024).contains(samples.count),
+              samples.count.isMultiple(of: 2) else {
+            throw AndroidTVClientError.underlying("Invalid microphone audio packet size.")
+        }
+        // Raw audio never appears in logs.
+        remote.send(TVVoiceWire.payload(sessionID: sessionID, audio: samples))
+    }
+
+    func endVoice() {
+        voiceSequence += 1
+        failVoice(CancellationError())
+        if let sessionID = voiceSession, connected {
+            remote.send(TVVoiceWire.end(sessionID: sessionID))
+        }
+        voiceSession = nil
+        voiceBuffer.removeAll()
+    }
+
+    private func receiveVoiceBytes(_ bytes: Data) {
+        guard pendingVoice != nil else { return }
+        voiceBuffer.append(bytes)
+        if voiceBuffer.count > 128 * 1024 {
+            voiceBuffer.removeAll()
+            failVoice(AndroidTVClientError.underlying("Malformed TV microphone response."))
+            return
+        }
+        while let message = TVVoiceWire.nextMessage(from: &voiceBuffer) {
+            if let sessionID = TVVoiceWire.voiceBeginSessionID(in: message) {
+                let pending = pendingVoice
+                pendingVoice = nil
+                pending?.resume(returning: sessionID)
+                return
+            }
+        }
+    }
+
+    private func failVoice(_ error: Error) {
+        let pending = pendingVoice
+        pendingVoice = nil
+        pending?.resume(throwing: error)
+    }
+
     func sendText(_ value: String) async throws {
         guard connected else { throw AndroidTVClientError.notConnected }
         guard !value.isEmpty, value.unicodeScalars.count <= 200 else {
@@ -183,9 +270,11 @@ final class AndroidTVRemoteBridge {
     }
 
     func disconnect() {
+        endVoice()
         resetPending()
         pairing.stateChanged = nil
         remote.stateChanged = nil
+        remote.receiveData = nil
         pairing.disconnect()
         remote.disconnect()
         connected = false
@@ -209,6 +298,7 @@ final class AndroidTVRemoteBridge {
         continuation.resume(with: result)
     }
     private func resetPending() {
+        endVoice()
         operationID += 1
         completeConnect(.failure(CancellationError()))
         completePairing(.failure(CancellationError()))

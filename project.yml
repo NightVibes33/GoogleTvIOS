@@ -34,8 +34,8 @@ targets:
       TARGETED_DEVICE_FAMILY: "1,2"
       SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
       GENERATE_INFOPLIST_FILE: false
-      CURRENT_PROJECT_VERSION: 9
-      MARKETING_VERSION: "1.5.0"
+      CURRENT_PROJECT_VERSION: 10
+      MARKETING_VERSION: "1.5.1"
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       CODE_SIGN_STYLE: Automatic
     dependencies:
@@ -47,6 +47,7 @@ targets:
         CFBundleDisplayName: CastDeck
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSMicrophoneUsageDescription: CastDeck uses your iPhone microphone only when you start voice search on your connected Google TV.
         NSScreenCaptureUsageDescription: CastDeck mirrors your iPhone screen only after you select it in the iOS sharing picker.
         NSBluetoothAlwaysUsageDescription: CastDeck discovers supported nearby Chromecast receivers.
         UIBackgroundModes:

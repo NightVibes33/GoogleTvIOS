@@ -6,7 +6,7 @@ CastDeck is an independent, native SwiftUI remote app. The iPhone screen is the 
 
 - **Chromecast with Google TV, Google TV Streamer, and Android TV devices that expose Android TV Remote v2:** remote directional buttons and pairing via TLS TCP/6466 and TCP/6467.
 - **Original cast-only Chromecast receivers:** discovered through `_googlecast._tcp` and identified as cast-only. They **do not** implement Android TV Remote v2; this build does not control them. Do not mistake cast discovery for support for screen mirroring or media casting.
-- The iOS 27 Screen Mirror sheet now contains an experimental local full-screen HLS casting pipeline. Installed-app enumeration and iPhone microphone PCM streaming to Assistant are **not implemented**. The search key triggers the TV search interface; it does not stream microphone audio from the phone.
+- The iOS 27 Screen Mirror sheet now contains an experimental local full-screen HLS casting pipeline. Installed-app enumeration is not implemented. TV voice search now has an experimental iPhone microphone transport using Android TV Remote v2 voice messages.
 
 ## Build and install
 
@@ -37,7 +37,7 @@ Haptic feedback, automatic discovery, D-pad/swipe navigation, reconnect/disconne
 - The protocol dependency is [odyshewroman/AndroidTVRemoteControl](https://github.com/odyshewroman/AndroidTVRemoteControl).
 - The former demonstration client and disabled bridge were removed: no fake success states, no discarded key commands.
 - Device verification is needed on an actual Google TV; simulator compilation and a UI screenshot do not prove pairing or control.
-- Local Network permission is required. No microphone permission is requested because the app does not record microphone audio.
+- Local Network and microphone permissions are requested only when required. Mic audio is streamed to the paired TV over the encrypted remote connection while voice search is active; it is not saved in Logs.
 - App icon needs a branded 1024x1024 image before App Store distribution.
 
 
@@ -173,3 +173,32 @@ ScreenCaptureKit iOS 27 metadata includes a per-frame video orientation. The enc
 Live streaming targets 30fps, 1-second AVFoundation HLS fragments, a 2-fragment initial buffer, and 3.5 Mbps H.264 at 1080p; the 4K HEVC experimental profile uses 12 Mbps with a receiver-triggered 1080p fallback on failed playback. The app avoids processing redundant frames, logs orientation changes, keeps source audio timestamps, and keeps Files logs. This does not create native 4K detail beyond the iPhone screen and cannot guarantee near-zero-latency Cast playback.
 
 **Hardware test needed:** rotate during an active full-screen video on an iPhone and confirm that receiver playback is landscape and properly cropped. If output remains portrait, the next log should show whether ScreenCaptureKit supplies orientation metadata and whether source frames actually change dimensions.
+
+## v1.5.1 — iPhone microphone and centered swipe controls
+
+The right-side circular control now opens **Voice Search**. CastDeck explicitly
+requests microphone permission and sends `KEYCODE_SEARCH` over the existing,
+paired Android TV Remote v2 TLS connection. After the Google TV returns a
+`RemoteVoiceBegin.session_id`, CastDeck sends the matching start frame and
+captures iPhone microphone audio using `AVAudioEngine`. Samples are converted
+to **8 kHz / 16-bit signed mono PCM**, buffered into at least **8192-byte**
+chunks, and sent as `RemoteVoicePayload` messages. Dismissing the sheet or
+pressing **Done talking** stops the microphone and sends `RemoteVoiceEnd`.
+Private audio never appears in Files logs, and nothing goes to a separate
+cloud transcription server. The TV's voice assistant is responsible for
+interpreting microphone input; support depends on the TV's Remote Service.
+
+The TV search shortcut remains on the bottom row. Switch from directional
+controls to **Swipe to navigate** in Settings; both controls occupy the same
+centered **circular** area, so other remote buttons do not shift.
+
+References: [tronikos/androidtvremote2](https://github.com/tronikos/androidtvremote2)
+documents the voice-session handshake, the 8 kHz PCM audio format, and the
+minimum voice payload size.
+
+**Verification**: CI can compile and package the microphone implementation
+but cannot certify the physical Google TV acknowledges voice sessions or
+recognizes commands. If the TV does not send `RemoteVoiceBegin`, the sheet
+shows a specific error after a 3-second timeout instead of pretending to
+listen. Confirm permission, session begin, audio capture and TV recognition
+on an actual Chromecast with Google TV.

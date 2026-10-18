@@ -7,6 +7,8 @@ struct RemotePanel: View {
     @AppStorage("hapticsEnabled") private var haptics = true
     @AppStorage("controlMode") private var controlMode = "dpad"
     @State private var showingKeyboard = false
+    @State private var showingMicrophone = false
+    @StateObject private var microphone = TVMicrophoneSession()
 
     let dpadSize: CGFloat
     private let remoteSurface = Color(red: 0.22, green: 0.23, blue: 0.25)
@@ -25,7 +27,15 @@ struct RemotePanel: View {
                 Spacer(minLength: 0)
                 roundKey("house.fill", label: "Home", key: .home, emphasized: true)
                 Spacer(minLength: 0)
-                roundKey("magnifyingglass", label: "TV search", key: .search)
+                Button { showingMicrophone = true } label: {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .frame(width: 58, height: 58)
+                        .background(Circle().fill(keySurface))
+                }
+                .buttonStyle(.plain)
+                .disabled(!session.isConnected)
+                .accessibilityLabel("Use iPhone microphone for TV voice search")
             }
             .padding(.horizontal, 14)
 
@@ -55,7 +65,7 @@ struct RemotePanel: View {
                 Spacer()
                 compactKey("line.3.horizontal", label: "TV menu", key: .menu)
                 Spacer()
-                compactKey("gearshape", label: "TV settings", key: .settings)
+                compactKey("magnifyingglass", label: "Open TV search", key: .search)
             }
             .foregroundStyle(.white.opacity(0.85))
             .padding(.horizontal, 12)
@@ -64,6 +74,9 @@ struct RemotePanel: View {
         .frame(maxWidth: .infinity)
         .sheet(isPresented: $showingKeyboard) {
             TextInputPanel().environmentObject(session)
+        }
+        .sheet(isPresented: $showingMicrophone) {
+            VoicePanel(voice: microphone).environmentObject(session)
         }
     }
 
@@ -115,8 +128,11 @@ struct RemotePanel: View {
 
     private var swipePad: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 34, style: .continuous)
+            Circle()
                 .fill(remoteSurface)
+                .overlay {
+                    Circle().stroke(.white.opacity(0.07), lineWidth: 1)
+                }
             VStack(spacing: 10) {
                 Image(systemName: "hand.draw")
                     .font(.system(size: 30, weight: .ultraLight))
@@ -129,8 +145,9 @@ struct RemotePanel: View {
                     .foregroundStyle(.white.opacity(0.42))
             }
         }
-        .frame(height: dpadSize)
-        .contentShape(RoundedRectangle(cornerRadius: 34))
+        .frame(width: dpadSize, height: dpadSize)
+        .contentShape(Circle())
+        .frame(maxWidth: .infinity, alignment: .center)
         .onTapGesture { send(.ok) }
         .gesture(
             DragGesture(minimumDistance: 22)

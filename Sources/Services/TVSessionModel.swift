@@ -203,6 +203,21 @@ final class TVSessionModel: ObservableObject {
         }
     }
 
+    func beginVoice() async throws {
+        guard isConnected else { throw AndroidTVClientError.notConnected }
+        try await client.beginVoice()
+        record("TV acknowledged new voice session")
+    }
+
+    func sendVoicePCM(_ bytes: Data) throws {
+        guard isConnected else { throw AndroidTVClientError.notConnected }
+        try client.sendVoicePCM(bytes)
+    }
+
+    func endVoice() {
+        client.endVoice()
+    }
+
     func sendText(_ text: String) {
         guard isConnected else { return }
         Task {

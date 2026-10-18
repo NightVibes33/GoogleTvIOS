@@ -52,6 +52,19 @@ final class AndroidTVClient {
         try await transport().launchApp(appId)
     }
 
+    func beginVoice() async throws {
+        try await transport().beginVoice()
+    }
+
+    func sendVoicePCM(_ samples: Data) throws {
+        guard let bridge else { throw AndroidTVClientError.notConnected }
+        try bridge.sendVoicePCM(samples)
+    }
+
+    func endVoice() {
+        bridge?.endVoice()
+    }
+
     func disconnect() {
         bridge?.disconnect()
     }

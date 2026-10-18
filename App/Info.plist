@@ -19,6 +19,8 @@
         <string>_androidtvremote2._tcp</string>
         <string>_googlecast._tcp</string>
     </array>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>CastDeck uses your iPhone microphone only when you start voice search on your connected Google TV.</string>
     <key>NSScreenCaptureUsageDescription</key>
     <string>CastDeck mirrors your iPhone screen only after you select it in the iOS sharing picker.</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
