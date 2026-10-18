@@ -24,7 +24,7 @@ struct RemotePanel: View {
             }
             .padding(.horizontal, 4)
 
-            VStack(spacing: 22) {
+            VStack(spacing: 16) {
                 HStack {
                     action("power", "Power", color: Theme.destructive) { send(.power) }
                     Spacer()
@@ -55,7 +55,7 @@ struct RemotePanel: View {
                 .padding(.horizontal, 5)
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 24)
+            .padding(.vertical, 18)
             .background(
                 RoundedRectangle(cornerRadius: 34, style: .continuous)
                     .fill(Theme.remoteShell.gradient)

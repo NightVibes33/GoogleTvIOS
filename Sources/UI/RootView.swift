@@ -36,10 +36,11 @@ struct RootView: View {
                         AppsPanel()
                     }
                     .padding(18)
+                    .padding(.bottom, 24)
                 }
                 .background(Theme.background.ignoresSafeArea())
                 .navigationTitle("CastDeck")
-                .navigationBarTitleDisplayMode(.large)
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
