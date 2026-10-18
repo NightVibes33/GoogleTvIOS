@@ -19,6 +19,9 @@ enum CastMediaSender {
         // The system display-capture picker may background our application,
         // but Cast control and RTP must remain running throughout mirroring.
         options.suspendSessionsWhenBackgrounded = false
+        // Do not send Google's default Cast discovery analytics independently
+        // of CastDeck's explicit, opt-in support reporting preference.
+        options.disableAnalyticsLogging = true
         GCKCastContext.setSharedInstanceWith(options)
     }
 }

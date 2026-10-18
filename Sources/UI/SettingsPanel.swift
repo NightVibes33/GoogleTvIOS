@@ -77,6 +77,11 @@ struct SettingsPanel: View {
                           systemImage: "lock.shield")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    NavigationLink {
+                        PrivacyPanel()
+                    } label: {
+                        Label("Privacy details", systemImage: "hand.raised")
+                    }
                 }
 
                 Section {
