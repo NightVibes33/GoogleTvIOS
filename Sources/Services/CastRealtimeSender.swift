@@ -64,13 +64,10 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
             attach(to: previous)
             return
         }
-        // The Cast SDK's session options allow choosing the built-in streaming
-        // receiver instead of its Default Media Receiver for this session.
-        let options: [String: any NSCoding & NSObjectProtocol] = [
-            "gck_applicationID": Self.appID as NSString
-        ]
-        guard manager.startSession(with: device, sessionOptions: options) else {
-            throw RealtimeMirrorError.receiver("Could not launch the Chromecast mirroring receiver.")
+        // Receiver launch is selected by GCKDiscoveryCriteria when the
+        // Cast SDK is configured, not by an undocumented sessionOption key.
+        guard manager.startSession(with: device) else {
+            throw RealtimeMirrorError.receiver("Couldn't connect to your Chromecast for screen sharing.")
         }
     }
 

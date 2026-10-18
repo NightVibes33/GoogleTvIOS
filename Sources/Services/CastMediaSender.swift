@@ -12,7 +12,9 @@ enum CastMediaSender {
 
     @MainActor
     static func configureSDK() {
-        let criteria = GCKDiscoveryCriteria(applicationID: kGCKDefaultMediaReceiverApplicationID)
+        // The sender SDK selects which receiver to launch from discovery criteria.
+// Use the built-in Cast Streaming receiver, not the Default Media Receiver.
+        let criteria = GCKDiscoveryCriteria(applicationID: "0F5096E8")
         let options = GCKCastOptions(discoveryCriteria: criteria)
         // The system display-capture picker may background our application,
         // but Cast control and RTP must remain running throughout mirroring.
