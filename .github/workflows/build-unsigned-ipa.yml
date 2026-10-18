@@ -56,8 +56,8 @@ jobs:
           description = info.get("NSLocalNetworkUsageDescription", "")
           assert expected.issubset(services), f"Missing Bonjour service types: {expected - services}"
           assert isinstance(description, str) and description.strip(), "Missing NSLocalNetworkUsageDescription"
-          assert info.get("CFBundleShortVersionString") == "1.5.1", f"Unexpected version: {info.get('CFBundleShortVersionString')}"
-          assert str(info.get("CFBundleVersion")) == "10", f"Unexpected build number: {info.get('CFBundleVersion')}"
+          assert info.get("CFBundleShortVersionString") == "2.0.0", f"Unexpected version: {info.get('CFBundleShortVersionString')}"
+          assert str(info.get("CFBundleVersion")) == "11", f"Unexpected build number: {info.get('CFBundleVersion')}"
           assert info.get("NSScreenCaptureUsageDescription"), "Missing ScreenCaptureKit usage description"
           assert info.get("NSMicrophoneUsageDescription"), "Missing microphone privacy usage description"
           assert "screen-capture" in info.get("UIBackgroundModes", []), "Missing iOS 27 capture background mode"

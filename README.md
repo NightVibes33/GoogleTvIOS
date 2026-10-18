@@ -202,3 +202,42 @@ recognizes commands. If the TV does not send `RemoteVoiceBegin`, the sheet
 shows a specific error after a 3-second timeout instead of pretending to
 listen. Confirm permission, session begin, audio capture and TV recognition
 on an actual Chromecast with Google TV.
+
+## Experimental Cast Streaming protocol rewrite (v2.0)
+
+The Screen Mirror control is now wired to the Chromecast's **built-in**
+Cast Streaming receiver `0F5096E8`, not the Default Media Receiver and
+not an HTTP HLS playlist.
+
+Components:
+- `CastRealtimeSender`: Cast SDK discovery/session launch, custom
+  `urn:x-cast:com.google.cast.webrtc` channel, OFFER/ANSWER negotiation,
+  handling receiver-selected UDP port, codec, fallback from unsupported
+  HEVC to H.264, and truthful failure/timeout reporting.
+- `CastRealtimeWire`: per-stream AES-128 CTR, Cast RTP packet headers,
+  bounded retransmission cache, NACK and picture-loss feedback parsing,
+  video/audio sender reports and RTT diagnostic events.
+- `CastRealtimeEncoder`: on-device VideoToolbox H.264/HEVC, directly
+  sending encoded frames rather than muxing MP4/HLS; supports real-time
+  landscape TV-fill and portrait aspect-fit.
+- `CastRealtimeAudioEncoder`: ScreenCaptureKit system audio to AAC-LC,
+  48k stereo, separate negotiated encrypted audio RTP stream.
+- `RealtimeMirrorSession`: iOS 27 user-approved capture picker, receiver
+  session lifecycle, Files logs, preview state and explicit cleanup.
+
+**No Chromecast receiver installation is required.** This uses the built-in
+mirroring application, not an App Store receiver or a custom web receiver.
+There is no local HTTP server and no recorded video/audio files.
+
+**Real-device acceptance testing is still required**. The CI iOS build and
+simulator test cannot test Cast receiver firmware interoperability, codec
+acceptance, RTCP pacing, mic/system-audio synchronization, or landscape
+presentation on a physical television. Do not interpret the UI's first
+"frames sent" state as receiver playback confirmation. If a physical test
+fails, collect CastDeck Files logs and continue debugging the control
+handshake / RTP events before calling the protocol fully validated.
+
+Protocol sources:
+- https://chromium.googlesource.com/openscreen/+/refs/heads/main/cast/protocol/streaming_session_protocol.md
+- https://github.com/chromium/openscreen
+- https://github.com/RikvdReijen/classic-chromecast-caster

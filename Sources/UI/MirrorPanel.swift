@@ -3,7 +3,7 @@ import SwiftUI
 /// Dedicated receiver picker and capture controls; the remote's original layout
 /// remains intact. Google Cast discovery is separate from Android TV remote pairing.
 struct MirrorPanel: View {
-    @ObservedObject var mirror: MirrorSession
+    @ObservedObject var mirror: RealtimeMirrorSession
     @Environment(\.dismiss) private var dismiss
     @State private var selectedReceiver: String?
     @State private var scanStarted = false
@@ -32,7 +32,7 @@ struct MirrorPanel: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        Text("Share your iPhone display and supported audio on your television over local Wi-Fi.")
+                        Text("Mirror your iPhone directly to Chromecast over local Wi-Fi. No HLS or screen recordings.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         Label(
@@ -96,7 +96,7 @@ struct MirrorPanel: View {
                     Text("TV names come from each Chromecast's advertised friendly name. Identical discovery records are combined by device ID.")
                 }
 
-                Section("Streaming quality") {
+                Section("Live mirroring quality") {
                     Picker("Output resolution", selection: $mirror.quality4K) {
                         Text("1080p").tag(false)
                         Text("4K · Beta").tag(true)
@@ -106,7 +106,7 @@ struct MirrorPanel: View {
                     Label("Rotate iPhone for full-screen video", systemImage: "arrow.triangle.2.circlepath")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    Text("Landscape fills your television automatically. Portrait keeps the full phone screen visible. 1080p is recommended for smoother mirroring; 4K is experimental.")
+                    Text("Landscape fills your television automatically. Portrait keeps the full phone screen visible. 1080p H.264 is compatible with more TVs; 4K HEVC is negotiated only if your Chromecast accepts it.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -115,7 +115,7 @@ struct MirrorPanel: View {
                     if mirror.isStarting {
                         HStack {
                             ProgressView()
-                            Text("Preparing live stream…")
+                            Text("Connecting real-time stream…")
                         }
                         Button("Cancel mirror startup", role: .destructive) { mirror.stop() }
                     } else if mirror.isMirroring {

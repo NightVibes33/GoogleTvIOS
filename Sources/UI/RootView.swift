@@ -7,7 +7,7 @@ struct RootView: View {
     @State private var devicePicker = false
     @State private var settings = false
     @State private var showingMirror = false
-    @StateObject private var mirror = MirrorSession()
+    @StateObject private var mirror = RealtimeMirrorSession()
     @State private var scanned = false
 
     private let background = Color(red: 0.105, green: 0.112, blue: 0.124)
