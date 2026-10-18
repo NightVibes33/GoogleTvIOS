@@ -119,9 +119,14 @@ export default async function handler(req, res) {
 
     for (const event of report.events) {
       const issueTitle = "[CastDeck telemetry] " + event.code;
-      const search = "repo:" + repo + " is:issue in:title \"" + issueTitle + "\"";
-      const found = await github("/search/issues?q=" + encodeURIComponent(search) + "&per_page=10");
-      let issue = found.items?.find(x => x.title === issueTitle);
+      const issueCacheKey = "castdeck:github-issue:" + sha(repo + ":" + event.code);
+      const issueCache = await redis([["GET", issueCacheKey]]);
+      let issue = issueCache[0] ? { number: Number(issueCache[0]) } : null;
+      if (!issue || !Number.isSafeInteger(issue.number)) {
+        const search = "repo:" + repo + " is:issue in:title \"" + issueTitle + "\"";
+        const found = await github("/search/issues?q=" + encodeURIComponent(search) + "&per_page=10");
+        issue = found.items?.find(x => x.title === issueTitle);
+      }
       if (!issue) {
         issue = await github("/repos/" + repo + "/issues", {
           method: "POST",
@@ -140,6 +145,9 @@ export default async function handler(req, res) {
         });
       }
 
+      // Cache the private issue's number for one hour. This avoids one
+      // GitHub Search API request per customer at fleet scale.
+      await redis([["SET", issueCacheKey, String(issue.number), "EX", 3600]]);
       const aggregate = await redis([
         ["INCRBY", "castdeck:issue:" + sha(event.code), event.count],
         ["EXPIRE", "castdeck:issue:" + sha(event.code), 90*86400]
