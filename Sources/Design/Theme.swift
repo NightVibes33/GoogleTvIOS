@@ -1,38 +1,28 @@
 import SwiftUI
 
-/// Design tokens — shadcn-inspired calm surfaces for iOS (Mobai-adjacent polish).
 enum Theme {
-    static let background = Color(red: 0.985, green: 0.986, blue: 0.990)
-    static let card = Color.white
-    static let foreground = Color(red: 0.09, green: 0.09, blue: 0.11)
-    static let muted = Color(red: 0.45, green: 0.45, blue: 0.50)
-    static let border = Color(red: 0.90, green: 0.90, blue: 0.92)
-    static let accent = Color(red: 0.18, green: 0.48, blue: 0.42) // cast-green, not purple
-    static let accentSoft = Color(red: 0.18, green: 0.48, blue: 0.42).opacity(0.12)
-    static let destructive = Color(red: 0.86, green: 0.25, blue: 0.25)
-    static let remoteShell = Color(red: 0.14, green: 0.15, blue: 0.18)
-    static let remoteWell = Color(red: 0.20, green: 0.22, blue: 0.26)
-    static let remoteInk = Color(red: 0.94, green: 0.95, blue: 0.96)
+    static let background = Color(uiColor: .systemGroupedBackground)
+    static let card = Color(uiColor: .secondarySystemGroupedBackground)
+    static let foreground = Color.primary
+    static let muted = Color.secondary
+    static let border = Color(uiColor: .separator).opacity(0.34)
+    static let accent = Color(red: 0.19, green: 0.58, blue: 0.49)
+    static let accentSoft = accent.opacity(0.13)
+    static let destructive = Color(red: 0.92, green: 0.29, blue: 0.30)
+    static let remoteShell = Color(red: 0.12, green: 0.14, blue: 0.17)
+    static let remoteWell = Color(red: 0.21, green: 0.24, blue: 0.28)
+    static let remoteInk = Color.white
 
-    static let radius: CGFloat = 14
-    static let radiusLG: CGFloat = 22
-
-    static let titleFont = Font.system(.title2, design: .rounded).weight(.semibold)
-    static let bodyFont = Font.system(.body, design: .default)
-    static let captionFont = Font.system(.caption, design: .default)
+    static let radius: CGFloat = 20
+    static let titleFont = Font.system(.title2, design: .rounded).weight(.bold)
+    static let captionFont = Font.system(.caption)
 }
 
 struct CardSurface<Content: View>: View {
     @ViewBuilder var content: Content
-
     var body: some View {
         content
-            .padding(16)
-            .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
-                    .stroke(Theme.border, lineWidth: 1)
-            )
+            .padding(18)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
     }
 }

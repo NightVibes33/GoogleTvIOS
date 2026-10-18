@@ -1,7 +1,6 @@
 import Foundation
 
-/// Keys aligned with Android TV Remote v2 / Windows CastDeck remote.
-enum TVKey: String {
+enum TVKey: String, CaseIterable {
     case power = "POWER"
     case back = "BACK"
     case home = "HOME"
@@ -14,6 +13,7 @@ enum TVKey: String {
     case volumeDown = "VOLUME_DOWN"
     case volumeMute = "VOLUME_MUTE"
     case playPause = "MEDIA_PLAY_PAUSE"
-    case searchStartLong = "SEARCH_START_LONG"
-    case searchEndLong = "SEARCH_END_LONG"
+    case search = "SEARCH"
+    case menu = "MENU"
+    case settings = "SETTINGS"
 }

@@ -1,72 +1,73 @@
 import Foundation
 import Network
 
-/// Bonjour browse for `_androidtvremote2._tcp` (Google TV Remote Service).
-final class DiscoveryService: @unchecked Sendable {
-    func scan(timeout: TimeInterval) async throws -> [TVDevice] {
-        try await withCheckedThrowingContinuation { continuation in
-            let browser = NWBrowser(
-                for: .bonjour(type: "_androidtvremote2._tcp", domain: nil),
-                using: .tcp
-            )
+/// Finds Android TV Remote v2 receivers and cast-only receivers separately.
+/// Older Chromecasts expose Cast protocol but do not implement the Android TV D-pad API.
+final class DiscoveryService {
+    func scan(timeout: TimeInterval = 5) async -> [TVDevice] {
+        await withCheckedContinuation { continuation in
+            let queue = DispatchQueue(label: "CastDeck.discovery")
             var found: [String: TVDevice] = [:]
-            let lock = NSLock()
-            var resumed = false
+            var browsers: [NWBrowser] = []
+            var probes: [NWConnection] = []
+            var finished = false
 
-            func finish(_ result: Result<[TVDevice], Error>) {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !resumed else { return }
-                resumed = true
-                browser.cancel()
-                continuation.resume(with: result)
-            }
-
-            browser.stateUpdateHandler = { state in
-                if case let .failed(error) = state {
-                    finish(.failure(error))
-                }
-            }
-
-            browser.browseResultsChangedHandler = { results, _ in
-                for result in results {
-                    guard case let .service(name, type, domain, interface) = result.endpoint else { continue }
-                    let endpoint = NWEndpoint.service(name: name, type: type, domain: domain, interface: interface)
-                    let conn = NWConnection(to: endpoint, using: .tcp)
-                    conn.stateUpdateHandler = { state in
-                        if case .ready = state {
-                            if case let .hostPort(host, port) = conn.currentPath?.remoteEndpoint {
-                                let hostStr: String
-                                switch host {
-                                case let .ipv4(v4): hostStr = "\(v4)"
-                                case let .ipv6(v6): hostStr = "\(v6)"
-                                case let .name(n, _): hostStr = n
-                                @unknown default: hostStr = "\(host)"
-                                }
-                                let device = TVDevice(
-                                    name: name.replacingOccurrences(of: "._androidtvremote2._tcp.local.", with: ""),
-                                    host: hostStr,
-                                    port: Int(port.rawValue)
-                                )
-                                lock.lock()
-                                found[device.id] = device
-                                lock.unlock()
-                            }
-                            conn.cancel()
+            for (service, kind) in [
+                ("_androidtvremote2._tcp", TVDevice.Kind.googleTV),
+                ("_googlecast._tcp", TVDevice.Kind.castOnly)
+            ] {
+                let browser = NWBrowser(for: .bonjour(type: service, domain: nil), using: .tcp)
+                browser.browseResultsChangedHandler = { results, _ in
+                    for result in results {
+                        guard case .service(let name, let type, let domain, let interface) = result.endpoint else {
+                            continue
                         }
+                        let endpoint = NWEndpoint.service(name: name, type: type, domain: domain, interface: interface)
+                        let probe = NWConnection(to: endpoint, using: .tcp)
+                        probes.append(probe)
+                        probe.stateUpdateHandler = { state in
+                            guard !finished else { probe.cancel(); return }
+                            if case .ready = state {
+                                if case .hostPort(let host, _) = probe.currentPath?.remoteEndpoint {
+                                    let address: String
+                                    switch host {
+                                    case .ipv4(let value): address = String(describing: value)
+                                    case .ipv6(let value): address = String(describing: value)
+                                    case .name(let value, _): address = value
+                                    @unknown default: address = String(describing: host)
+                                    }
+                                    let display = name.replacingOccurrences(
+                                        of: "._androidtvremote2._tcp.local.", with: ""
+                                    )
+                                    let item = TVDevice(
+                                        name: display,
+                                        host: address,
+                                        port: kind == .googleTV ? 6466 : 8009,
+                                        kind: kind
+                                    )
+                                    if found[address]?.supportsRemote != true || item.supportsRemote {
+                                        found[address] = item
+                                    }
+                                }
+                                probe.cancel()
+                            }
+                        }
+                        probe.start(queue: queue)
                     }
-                    conn.start(queue: .global())
                 }
+                browser.start(queue: queue)
+                browsers.append(browser)
             }
-
-            browser.start(queue: .main)
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
-                lock.lock()
-                let list = Array(found.values).sorted { $0.name < $1.name }
-                lock.unlock()
-                finish(.success(list))
+            queue.asyncAfter(deadline: .now() + max(1, timeout)) {
+                guard !finished else { return }
+                finished = true
+                browsers.forEach { $0.cancel() }
+                probes.forEach { $0.cancel() }
+                continuation.resume(returning: found.values.sorted {
+                    if $0.supportsRemote != $1.supportsRemote { return $0.supportsRemote }
+                    return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                })
             }
         }
     }
 }
-

@@ -1,18 +1,13 @@
-# Wire AndroidTVRemoteControl in Xcode (Mac)
+# Protocol integration
 
-The UI and session layer are ready. Finish the protocol bridge on a Mac:
+The `AndroidTVRemoteControl` package is linked in `project.yml` and wired in `Sources/Services/AndroidTVRemoteBridge.swift`.
 
-1. `brew install xcodegen` then `xcodegen generate` in this folder  
-   **or** File → New → App in Xcode and add the `App/` + `Sources/` folders
-2. File → Add Package Dependencies →  
-   `https://github.com/odyshewroman/AndroidTVRemoteControl`
-3. Open `Sources/Services/AndroidTVClient.swift` and align `#if canImport(AndroidTVRemoteControl)` calls with the package’s current `PairingManager` / `RemoteManager` API (names drift slightly by version)
-4. Confirm voice: after `SEARCH` + `START_LONG`, use the package’s voice/PCM hooks if present; otherwise stream via whatever `RemoteVoicePayload` helper the package exposes
-5. Drop a 1024×1024 App Icon into `AppIcon.appiconset`
-6. Signing → your Team → run on a **physical iPhone** (Local Network won’t work in Simulator the same way)
+The active client owns a TLS pairing session, a remote v2 connection, and a local keychain identity. It explicitly awaits the TV's `.waitingCode`, `.successPaired` and `.paired` states. Connection failures and timeouts are surfaced in the UI and logged without exposing PINs.
 
-## App Store
+Pairing is available on TCP 6467; remote v2 is available on TCP 6466. The TV and iPhone must be on a reachable local network. Inbound Android TV state notifications and deep links depend on receiver firmware.
 
-- Archive on Mac
-- Privacy labels: Local Network + Microphone = App Functionality
-- No tracking / no ATT
+## Limitations
+
+This is **not** a generic original-Chromecast remote. Cast-only receivers can be discovered but require implementing the Google Cast V2 control protocol separately. iPhone mic voice streaming is unavailable with the linked package and is intentionally not represented as working. The upstream TLS package currently accepts server certificates without certificate pinning; avoid untrusted networks.
+
+On-device acceptance criteria: fresh install → device scan → TV-generated PIN → verified connection → D-pad and volume commands actually change TV state → terminate and relaunch app → reconnect → revoke TV pairing and confirm the re-pair flow.

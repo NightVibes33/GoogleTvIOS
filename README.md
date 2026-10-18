@@ -1,60 +1,45 @@
-# CastDeck — Google TV Remote (iOS)
+# CastDeck — Chromecast with Google TV remote for iOS
 
-Native **SwiftUI** remote for Google TV / Android TV. App Store–oriented: local-network pairing, hold-to-talk Gemini/Assistant (PC-mic equivalent = iPhone mic), polished UI.
+CastDeck is an independent, native SwiftUI remote app. The first tab is the remote; the second tab has settings, logging, and compatibility information.
 
-Not a web wrapper. Uses the official **Android TV Remote Protocol v2** via [AndroidTVRemoteControl](https://github.com/odyshewroman/AndroidTVRemoteControl) (SPM).
+## Supported receivers
 
-## Requirements
+- **Chromecast with Google TV, Google TV Streamer, and Android TV devices that expose Android TV Remote v2:** remote directional buttons and pairing via TLS TCP/6466 and TCP/6467.
+- **Original cast-only Chromecast receivers:** discovered through `_googlecast._tcp` and identified as cast-only. They **do not** implement Android TV Remote v2; this build does not control them. Do not mistake cast discovery for support for screen mirroring or media casting.
+- Media casting, screen mirroring, installed-app enumeration, and iPhone microphone PCM streaming are **not implemented**. The search key triggers the TV search interface; it does not stream microphone audio from the phone.
 
-- Mac with **Xcode 16+**
-- Apple Developer account (for device + App Store)
-- iPhone/iPad on the **same Wi‑Fi** as the TV
-- Google TV / Chromecast with Google TV
+## Build and install
 
-## Open & run
-
-```bash
-cd google-tv-remote-ios
-open CastDeck.xcodeproj
+```sh
+brew install xcodegen
+xcodegen generate --spec project.yml
+xcodebuild -project CastDeck.xcodeproj -scheme CastDeck -sdk iphoneos CODE_SIGNING_ALLOWED=NO build
 ```
 
-1. Select your Team in **Signing & Capabilities**
-2. Run on a physical device (local network discovery needs a real device)
-3. Allow **Local Network** + **Microphone** when prompted
+GitHub Actions publishes an **unsigned IPA**. Sign it for your own device using a permitted signing method. The app requires iOS 17 or newer.
 
-## Features
+## How connection works
 
-- Bonjour discovery (`_androidtvremote2._tcp`)
-- One-time PIN pairing (certs in Keychain)
-- Physical-style remote: D-pad, Back, Home, volume, mute, power
-- **Hold mic** → `KEYCODE_SEARCH` `START_LONG` + PCM stream → Gemini/Assistant
-- Quick-launch YouTube / Netflix / etc.
-- Design tokens inspired by shadcn (light surface, clear hierarchy, calm accents)
+1. iPhone and TV must be reachable on the same local network. Allow Local Network access.
+2. Open **Choose a TV** and scan or enter the TV's IP address manually.
+3. The client creates an RSA key pair and a self-signed X.509 certificate on first use. The private key remains in the device Keychain.
+4. Connect via Android TV Remote v2. If not paired, start pairing over TCP 6467, enter the **six-character hexadecimal PIN** displayed on the TV, and wait for the TV's confirmation.
+5. A connection counts as successful only after the TV's Remote v2 handshake finishes. Commands are sent using `KeyPress`; shortcuts use supported `DeepLink` messages.
 
-## App Store checklist
+If pairing is revoked on the TV, reconnect and pair again. The TV's certificate is not pinned by the upstream library; use a trusted local network.
 
-| Item | Status |
-|------|--------|
-| `NSLocalNetworkUsageDescription` | ✅ Info.plist |
-| `NSBonjourServices` (`_androidtvremote2._tcp`) | ✅ |
-| `NSMicrophoneUsageDescription` | ✅ (voice / Gemini) |
-| Privacy Manifest `PrivacyInfo.xcprivacy` | ✅ |
-| No tracking / ATT needed | ✅ local-only |
-| Minimum iOS | 17.0 |
+## Settings
 
-### Before submit
+Haptic feedback, automatic discovery, system/light/dark appearance, reconnect/disconnect, plain-text diagnostics sharing, and compatibility details.
 
-1. Replace placeholder app icon in `Assets.xcassets/AppIcon.appiconset`
-2. Set unique Bundle ID (default `com.castdeck.googletvremote`)
-3. Archive → Distribute App → App Store Connect
-4. Privacy Nutrition Labels: Local Network, Microphone — purpose “App Functionality”
+## Development
 
-## Windows companion
-
-Polished Windows EXE (same protocol):
-
-`..\google-tv-remote-windows\dist\GoogleTVRemote.exe`
+- The protocol dependency is [odyshewroman/AndroidTVRemoteControl](https://github.com/odyshewroman/AndroidTVRemoteControl).
+- The former demonstration client and disabled bridge were removed: no fake success states, no discarded key commands.
+- Device verification is needed on an actual Google TV; simulator compilation and a UI screenshot do not prove pairing or control.
+- Local Network permission is required. No microphone permission is requested because the app does not record microphone audio.
+- App icon needs a branded 1024x1024 image before App Store distribution.
 
 ## License
 
-MIT
+MIT. Independent application; not affiliated with Google.

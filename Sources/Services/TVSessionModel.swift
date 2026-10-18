@@ -1,105 +1,174 @@
 import Foundation
 import SwiftUI
-import Network
 
-/// App session: discovery, pairing, commands, hold-to-talk Gemini.
 @MainActor
 final class TVSessionModel: ObservableObject {
     @Published var devices: [TVDevice] = []
     @Published var selected: TVDevice?
     @Published var isScanning = false
+    @Published var isConnecting = false
     @Published var isConnected = false
     @Published var isPairing = false
-    @Published var status = "Find your Google TV on Wi‑Fi"
+    @Published var status = "Choose a Google TV to connect"
     @Published var lastError: String?
     @Published var pairingCode = ""
-    @Published var isMicHolding = false
+    @Published private(set) var logs: [String] = []
 
     private let discovery = DiscoveryService()
     private let client = AndroidTVClient()
-    private var micTask: Task<Void, Never>?
+    private var connectionTask: Task<Void, Never>?
+    private var requestID = UUID()
+
+    init() {
+        if let data = UserDefaults.standard.data(forKey: "lastDevice"),
+           let tv = try? JSONDecoder().decode(TVDevice.self, from: data) {
+            selected = tv
+            status = "Ready to reconnect to " + tv.name
+        }
+        client.onConnectionLost = { [weak self] reason in
+            guard let self, self.isConnected else { return }
+            self.isConnected = false
+            self.status = "Connection lost"
+            self.lastError = reason
+            self.record("Remote disconnected: " + reason)
+        }
+    }
+
+    func record(_ line: String) {
+        logs.append(Date().formatted(date: .numeric, time: .standard) + "  " + line)
+        if logs.count > 300 { logs.removeFirst(logs.count - 300) }
+    }
+
+    var diagnosticText: String {
+        (["CastDeck diagnostics (no PINs or private keys)",
+          "Selected device: " + (selected?.name ?? "none"),
+          "State: " + status,
+          "Connected: " + String(isConnected),
+          ""] + logs).joined(separator: "\n")
+    }
 
     func scan() {
+        guard !isScanning else { return }
         isScanning = true
-        status = "Scanning local network…"
         lastError = nil
+        status = "Looking for devices on Wi-Fi…"
+        record("Starting Bonjour discovery")
         Task {
-            do {
-                let found = try await discovery.scan(timeout: 4)
-                devices = found
-                status = found.isEmpty
-                    ? "No TVs found — enter IP or check Wi‑Fi"
-                    : "Found \(found.count) device\(found.count == 1 ? "" : "s")"
-            } catch {
-                lastError = error.localizedDescription
-                status = "Scan failed"
-            }
+            let result = await discovery.scan()
+            devices = result
             isScanning = false
+            status = result.isEmpty ? "No devices found. Check local network permissions or add an IP." :
+                "Found \(result.count) device\(result.count == 1 ? "" : "s")"
+            record("Discovery completed: \(result.count) device(s)")
         }
     }
 
     func connect(to device: TVDevice) {
+        guard device.supportsRemote else {
+            selected = device
+            lastError = "This is a cast-only Chromecast. It does not support the Google TV directional remote. Use casting controls for this receiver."
+            status = "Cast-only device"
+            record("Rejected unsupported cast-only remote: " + device.name)
+            return
+        }
+        connectionTask?.cancel()
+        client.disconnect()
+        requestID = UUID()
+        let id = requestID
         selected = device
-        status = "Connecting to \(device.name)…"
+        isConnected = false
+        isPairing = false
+        isConnecting = true
+        pairingCode = ""
         lastError = nil
-        Task {
+        status = "Connecting to " + device.name + "…"
+        record("Connecting to " + device.host)
+        connectionTask = Task {
             do {
                 try await client.connect(host: device.host)
-                isConnected = true
-                isPairing = false
-                status = "Connected · \(device.name)"
-            } catch AndroidTVClientError.pairingRequired {
-                isPairing = true
-                isConnected = false
-                status = "Enter the PIN shown on your TV"
+                guard id == requestID else { return }
+                connected(device)
+            } catch {
+                guard id == requestID, !Task.isCancelled else { return }
+                record("Initial remote handshake: " + error.localizedDescription)
+                status = "Requesting a pairing code…"
                 do {
                     try await client.startPairing(host: device.host)
+                    guard id == requestID else { return }
+                    isPairing = true
+                    isConnecting = false
+                    status = "Enter the six-character code shown on your Google TV"
+                    record("TV displayed a pairing code")
                 } catch {
+                    guard id == requestID else { return }
+                    isPairing = false
+                    isConnecting = false
+                    status = "Connection failed"
                     lastError = error.localizedDescription
+                    record("Pairing could not start: " + error.localizedDescription)
                 }
-            } catch {
-                lastError = error.localizedDescription
-                status = "Connection failed"
-                isConnected = false
             }
         }
     }
 
     func submitPairingCode() {
+        guard isPairing, let device = selected else { return }
         let code = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard code.count == 6 else {
-            lastError = "PIN must be 6 characters (0-9, A-F)"
+        guard code.count == 6, code.unicodeScalars.allSatisfy({
+            CharacterSet(charactersIn: "0123456789ABCDEF").contains($0)
+        }) else {
+            lastError = "Enter the six hexadecimal characters (0–9, A–F) shown on the TV."
             return
         }
-        status = "Submitting PIN…"
-        Task {
+        isConnecting = true
+        lastError = nil
+        status = "Verifying code with TV…"
+        let id = requestID
+        connectionTask = Task {
             do {
                 try await client.finishPairing(code: code)
-                if let device = selected {
-                    try await client.connect(host: device.host)
-                }
-                isPairing = false
-                isConnected = true
-                pairingCode = ""
-                status = "Paired & connected"
+                guard id == requestID else { return }
+                record("PIN verified by TV")
+                try await client.connect(host: device.host)
+                guard id == requestID else { return }
+                connected(device)
             } catch {
+                guard id == requestID else { return }
+                isConnecting = false
+                isPairing = false
+                pairingCode = ""
+                status = "Pairing failed — reconnect to retry"
                 lastError = error.localizedDescription
-                status = "Pairing failed"
+                record("PIN verification failed: " + error.localizedDescription)
             }
         }
     }
 
-    func send(_ key: TVKey) {
-        guard isConnected else {
-            status = "Connect a TV first"
-            return
+    private func connected(_ device: TVDevice) {
+        isConnected = true
+        isConnecting = false
+        isPairing = false
+        pairingCode = ""
+        lastError = nil
+        status = "Connected to " + device.name
+        if let saved = try? JSONEncoder().encode(device) {
+            UserDefaults.standard.set(saved, forKey: "lastDevice")
         }
+        record("Remote handshake confirmed by TV")
+    }
+
+    func send(_ key: TVKey) {
+        guard isConnected else { return }
         Task {
             do {
                 try await client.sendKey(key)
-                status = key.rawValue
+                status = "Sent " + key.rawValue
+                record("Sent " + key.rawValue)
             } catch {
+                isConnected = false
                 lastError = error.localizedDescription
+                status = "Remote command failed"
+                record("Command failed: " + error.localizedDescription)
             }
         }
     }
@@ -109,45 +178,25 @@ final class TVSessionModel: ObservableObject {
         Task {
             do {
                 try await client.launchApp(appId)
-                status = "Opened \(name)"
+                status = "Sent " + name + " shortcut"
+                record("Deep-link sent for " + name)
             } catch {
                 lastError = error.localizedDescription
+                record("Shortcut failed: " + error.localizedDescription)
             }
         }
-    }
-
-    /// Hold mic: SEARCH START_LONG + stream iPhone mic → Gemini/Assistant (same as Windows).
-    func micPress() {
-        guard isConnected, !isMicHolding else { return }
-        isMicHolding = true
-        status = "Gemini listening — keep holding…"
-        micTask = Task {
-            do {
-                try await client.holdGeminiVoice { [weak self] in
-                    await MainActor.run { self?.isMicHolding == true }
-                }
-                if !Task.isCancelled {
-                    status = "Gemini voice ended"
-                }
-            } catch {
-                lastError = error.localizedDescription
-                status = "Mic failed"
-            }
-            isMicHolding = false
-        }
-    }
-
-    func micRelease() {
-        isMicHolding = false
-        micTask?.cancel()
-        micTask = nil
-        status = "Mic released"
     }
 
     func disconnect() {
+        requestID = UUID()
+        connectionTask?.cancel()
+        connectionTask = nil
         client.disconnect()
         isConnected = false
         isPairing = false
+        isConnecting = false
+        pairingCode = ""
         status = "Disconnected"
+        record("Disconnected by user")
     }
 }

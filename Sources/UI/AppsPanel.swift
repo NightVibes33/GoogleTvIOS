@@ -2,39 +2,33 @@ import SwiftUI
 
 struct AppsPanel: View {
     @EnvironmentObject private var session: TVSessionModel
-
-    private let apps: [(name: String, id: String, color: Color)] = [
-        ("YouTube", "com.google.android.youtube.tv", .red),
-        ("Netflix", "com.netflix.ninja", .black),
-        ("Disney+", "com.disney.disneyplus", Color(red: 0.05, green: 0.1, blue: 0.3)),
-        ("Prime", "com.amazon.amazonvideo.livingroom", Color(red: 0, green: 0.66, blue: 0.88)),
-    ]
-
     var body: some View {
         CardSurface {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Quick launch")
+                Label("TV shortcuts", systemImage: "square.grid.2x2.fill")
                     .font(.headline)
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                    ForEach(apps, id: \.id) { app in
-                        Button {
-                            session.launch(appId: app.id, name: app.name)
-                        } label: {
-                            Text(app.name)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(app.color)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!session.isConnected)
-                    }
+                Text("Send a supported deep link to the selected TV. Apps available depend on the receiver.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    shortcut("YouTube", icon: "play.rectangle.fill", color: .red, id: "youtube")
+                    shortcut("Netflix", icon: "play.square.fill", color: .black, id: "netflix")
                 }
             }
         }
+    }
+    private func shortcut(_ title: String, icon: String, color: Color, id: String) -> some View {
+        Button {
+            session.launch(appId: id, name: title)
+        } label: {
+            Label(title, systemImage: icon)
+                .font(.subheadline.weight(.medium))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .foregroundStyle(.white)
+                .background(color, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .disabled(!session.isConnected)
     }
 }

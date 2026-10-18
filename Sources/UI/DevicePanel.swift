@@ -2,103 +2,151 @@ import SwiftUI
 
 struct DevicePanel: View {
     @EnvironmentObject private var session: TVSessionModel
+    @Environment(\.dismiss) private var dismiss
     @State private var manualIP = ""
+    @FocusState private var ipFocused: Bool
 
     var body: some View {
-        CardSurface {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("Devices")
-                        .font(.headline)
-                        .foregroundStyle(Theme.foreground)
-                    Spacer()
-                    Button {
-                        session.scan()
-                    } label: {
-                        if session.isScanning {
-                            ProgressView()
-                        } else {
-                            Label("Scan", systemImage: "arrow.clockwise")
+        NavigationStack {
+            List {
+                Section {
+                    Button { session.scan() } label: {
+                        HStack {
+                            Label("Scan local network", systemImage: "arrow.clockwise")
+                            Spacer()
+                            if session.isScanning { ProgressView() }
                         }
                     }
-                    .buttonStyle(.bordered)
-                    .tint(Theme.accent)
                     .disabled(session.isScanning)
+                } footer: {
+                    Text("The iPhone and TV must be on the same local network. Allow Local Network access when prompted.")
                 }
 
-                if session.devices.isEmpty {
-                    Text("No devices yet. Scan, or connect by IP.")
-                        .font(Theme.captionFont)
-                        .foregroundStyle(Theme.muted)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                } else {
+                if let selected = session.selected {
+                    Section("Current TV") {
+                        HStack {
+                            Image(systemName: "tv.fill")
+                                .foregroundStyle(Theme.accent)
+                            VStack(alignment: .leading) {
+                                Text(selected.name)
+                                    .font(.headline)
+                                Text(selected.host)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if session.isConnected {
+                                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                            } else if session.isConnecting { ProgressView() }
+                        }
+                        if session.isConnected {
+                            Button("Disconnect", role: .destructive) { session.disconnect() }
+                        } else if selected.supportsRemote && !session.isConnecting && !session.isPairing {
+                            Button("Reconnect") { session.connect(to: selected) }
+                        }
+                    }
+                }
+
+                Section("Nearby devices") {
+                    if session.devices.isEmpty {
+                        ContentUnavailableView(
+                            "No TVs discovered",
+                            systemImage: "tv.slash",
+                            description: Text("Scan again, or enter a TV IP address below.")
+                        )
+                    }
                     ForEach(session.devices) { device in
                         Button {
                             session.connect(to: device)
+                            if device.supportsRemote && !session.isPairing { ipFocused = false }
                         } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(device.name)
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(Theme.foreground)
-                                    Text(device.host)
-                                        .font(Theme.captionFont)
-                                        .foregroundStyle(Theme.muted)
+                            HStack(spacing: 12) {
+                                Image(systemName: device.supportsRemote ? "tv.fill" : "airplayvideo")
+                                    .font(.title3)
+                                    .frame(width: 34)
+                                    .foregroundStyle(Theme.accent)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(device.name).foregroundStyle(.primary)
+                                    Text(device.supportsRemote ? "Google TV / Android TV remote" : "Cast-only • no D-pad protocol")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                if session.selected?.id == device.id, session.isConnected {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(Theme.accent)
-                                }
+                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                             }
-                            .padding(12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(session.selected?.id == device.id ? Theme.accentSoft : Theme.background)
-                            )
                         }
-                        .buttonStyle(.plain)
                     }
                 }
 
-                HStack(spacing: 8) {
-                    TextField("TV IP (e.g. 192.168.4.43)", text: $manualIP)
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.decimalPad)
-                        .textInputAutocapitalization(.never)
-                    Button("Connect") {
-                        let ip = manualIP.trimmingCharacters(in: .whitespaces)
-                        guard !ip.isEmpty else { return }
-                        session.connect(to: TVDevice(name: "TV", host: ip, port: 6466))
+                Section("Connect manually") {
+                    HStack {
+                        TextField("TV IP address or hostname", text: $manualIP)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                            .focused($ipFocused)
+                            .submitLabel(.go)
+                            .onSubmit(connectManual)
+                        Button("Connect", action: connectManual)
+                            .disabled(manualIP.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.accent)
+                } footer: {
+                    Text("Manual entry uses the Android TV Remote v2 service on TCP port 6466.")
                 }
 
                 if session.isPairing {
-                    Divider()
-                    Text("PIN on TV")
-                        .font(.subheadline.weight(.semibold))
-                    TextField("ABCDEF", text: $session.pairingCode)
-                        .textFieldStyle(.roundedBorder)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                    Button("Submit PIN") {
-                        session.submitPairingCode()
+                    Section("Pair with Google TV") {
+                        Text("Find the code on your TV screen. It contains six characters from 0–9 and A–F.")
+                            .font(.subheadline)
+                        TextField("Six-character TV code", text: $session.pairingCode)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
+                            .textContentType(.oneTimeCode)
+                            .font(.system(.title3, design: .monospaced))
+                        Button("Verify pairing code") {
+                            session.submitPairingCode()
+                        }
+                        .disabled(session.isConnecting || session.pairingCode.count != 6)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.accent)
-                    .frame(maxWidth: .infinity)
                 }
 
-                if session.isConnected {
-                    Button("Disconnect", role: .destructive) {
-                        session.disconnect()
+                if session.isConnecting {
+                    HStack {
+                        ProgressView()
+                        Text(session.status)
                     }
-                    .font(.subheadline)
+                }
+                if let error = session.lastError {
+                    Section("Connection details") {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Choose a TV")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
                 }
             }
         }
+        .onAppear {
+            if session.devices.isEmpty && !session.isScanning { session.scan() }
+        }
+    }
+
+    private func connectManual() {
+        let host = manualIP.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty,
+              !host.contains("/"),
+              !host.contains(" "),
+              !host.contains("://") else {
+            session.lastError = "Enter only the TV IP address or hostname."
+            return
+        }
+        ipFocused = false
+        session.connect(to: TVDevice(name: host, host: host, port: 6466))
     }
 }
