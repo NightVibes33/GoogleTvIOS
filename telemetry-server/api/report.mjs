@@ -15,23 +15,58 @@ function json(res, status, body) {
   return res.status(status).json(body);
 }
 
+export function sanitizeLogLine(value) {
+  let line=String(value).slice(0,400);
+  if (/\b(pass(word|code)?|pin|authorization|bearer|token|secret|credential|cookie|private[\s_-]*key|keyboard[\s_-]*text|text[\s_-]*value|clipboard|typed[\s_-]*text|session[\s_-]*id)\b/i.test(line)) {
+    return "[private diagnostic event omitted]";
+  }
+  line=line.replace(/https?:\/\/[^\s"'<>]+/gi,"[url]")
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g,"[ip]")
+    .replace(/\b(?:[a-f0-9]{0,4}:){2,}[a-f0-9:]{2,}\b/gi,"[ipv6]")
+    .replace(/\b[a-z0-9._-]+\.local\b/gi,"[host]")
+    .replace(/\b(?:[a-f0-9]{2}[:-]){5}[a-f0-9]{2}\b/gi,"[mac]")
+    .replace(/\b(?:[a-f0-9]{2}[:-]){5}[a-f0-9]{2}\b/gi,"[mac]")
+    .replace(/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi,"[email]")
+    .replace(/\b[a-f0-9]{24,}\b/gi,"[identifier]")
+    .replace(/\b\d{6,10}\b/g,"[number]")
+    .replace(/[\r\n`|]/g," ");
+  return line.slice(0,300);
+}
+
 export function validate(body) {
   if (!body || typeof body !== "object" || Array.isArray(body) ||
-      body.schema !== 1 || body.app !== "castdeck" || body.os !== "ios" ||
+      body.schema !== 2 || body.app !== "castdeck" || body.os !== "ios" ||
       typeof body.release !== "string" ||
       !/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(body.release) ||
       typeof body.batchID !== "string" ||
       !/^[a-f0-9-]{36}$/i.test(body.batchID) ||
+      typeof body.deviceModel !== "string" ||
+      !/^[a-zA-Z0-9,_-]{2,48}$/.test(body.deviceModel) ||
+      typeof body.iosVersion !== "string" ||
+      !/^\d{1,3}(?:\.\d{1,3}){1,3}$/.test(body.iosVersion) ||
+      typeof body.appBuild !== "string" ||
+      !/^\d{1,12}$/.test(body.appBuild) ||
+      typeof body.timestampUTC !== "string" ||
+      Number.isNaN(Date.parse(body.timestampUTC)) ||
+      !Array.isArray(body.logLines) || body.logLines.length > 80 ||
       !Array.isArray(body.events) || body.events.length < 1 ||
       body.events.length > 25) return null;
-  const events = [];
+  const logs=[];
+  for (const line of body.logLines) {
+    if (typeof line !== "string" || line.length > 400) return null;
+    logs.push(sanitizeLogLine(line));
+  }
+  const events=[];
   for (const event of body.events) {
     if (!event || !VALID_CODES.has(event.code) ||
         !Number.isInteger(event.count) || event.count < 1 ||
         event.count > 1000) return null;
-    events.push({ code: event.code, count: event.count });
+    events.push({code:event.code,count:event.count});
   }
-  return { release: body.release, batchID: body.batchID, events };
+  return {release:body.release,batchID:body.batchID,events,
+    deviceModel:body.deviceModel,iosVersion:body.iosVersion,
+    appBuild:body.appBuild,timestampUTC:body.timestampUTC,
+    logLines:logs};
 }
 
 const sha = input => createHash("sha256").update(input).digest("hex");
@@ -86,13 +121,14 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return json(res, 405, { error: "method_not_allowed" });
   if (!configured()) return json(res, 503, { error: "reporting_not_configured" });
   const size = Number(req.headers["content-length"] || 0);
-  if (size > 8192 || (size < 1 && typeof req.body === "string" && req.body.length > 8192)) {
+  if (size > 40000 || (size < 1 && typeof req.body === "string" && req.body.length > 40000)) {
     return json(res, 413, { error: "too_large" });
   }
   let parsed = req.body;
   if (typeof parsed === "string") {
     try { parsed = JSON.parse(parsed); } catch { return json(res, 400, { error: "invalid_json" }); }
   }
+  if (JSON.stringify(parsed).length > 40000) return json(res,413,{error:"too_large"});
   const report = validate(parsed);
   if (!report) return json(res, 400, { error: "invalid_event" });
 
@@ -119,14 +155,9 @@ export default async function handler(req, res) {
 
     for (const event of report.events) {
       const issueTitle = "[CastDeck telemetry] " + event.code;
-      const issueCacheKey = "castdeck:github-issue:" + sha(repo + ":" + event.code);
-      const issueCache = await redis([["GET", issueCacheKey]]);
-      let issue = issueCache[0] ? { number: Number(issueCache[0]) } : null;
-      if (!issue || !Number.isSafeInteger(issue.number)) {
-        const search = "repo:" + repo + " is:issue in:title \"" + issueTitle + "\"";
-        const found = await github("/search/issues?q=" + encodeURIComponent(search) + "&per_page=10");
-        issue = found.items?.find(x => x.title === issueTitle);
-      }
+      const search = "repo:" + repo + " is:issue in:title \"" + issueTitle + "\"";
+      const found = await github("/search/issues?q=" + encodeURIComponent(search) + "&per_page=10");
+      let issue = found.items?.find(x => x.title === issueTitle);
       if (!issue) {
         issue = await github("/repos/" + repo + "/issues", {
           method: "POST",
@@ -137,17 +168,23 @@ export default async function handler(req, res) {
               "",
               "**Failure code:** \`" + event.code + "\`",
               "**First reported version:** \`" + report.release + "\`",
+              "**Device model:** `" + report.deviceModel + "`",
+              "**iOS version:** `" + report.iosVersion + "`",
+              "**App build:** `" + report.appBuild + "`",
+              "**UTC timestamp:** `" + report.timestampUTC + "`",
               "",
-              "Only allowlisted failure codes and counts are collected.",
-              "No raw app logs, IP addresses, voice, typed text, PINs or screenshots."
+              "**Sanitized diagnostic excerpt (up to 80 lines):**",
+              "~~~text",
+              ...report.logLines,
+              "~~~",
+              "",
+              "Only allowlisted failure codes, device metadata and redacted diagnostic excerpts are collected.",
+              "No raw log files, IP addresses, voice, typed text, PINs or screenshots."
             ].join("\n")
           })
         });
       }
 
-      // Cache the private issue's number for one hour. This avoids one
-      // GitHub Search API request per customer at fleet scale.
-      await redis([["SET", issueCacheKey, String(issue.number), "EX", 3600]]);
       const aggregate = await redis([
         ["INCRBY", "castdeck:issue:" + sha(event.code), event.count],
         ["EXPIRE", "castdeck:issue:" + sha(event.code), 90*86400]
@@ -160,8 +197,19 @@ export default async function handler(req, res) {
         await github("/repos/" + repo + "/issues/" + issue.number + "/comments", {
           method: "POST",
           body: JSON.stringify({
-            body: "📈 Automated report milestone: **" + total +
-              "** occurrences; newest release **" + report.release + "**."
+            body: [
+              "Automated report milestone: **" + total +
+                "** occurrences; newest release **" + report.release + "**.",
+              "**Device model:** `" + report.deviceModel + "`",
+              "**iOS version:** `" + report.iosVersion + "`",
+              "**App build:** `" + report.appBuild + "`",
+              "**UTC timestamp:** `" + report.timestampUTC + "`",
+              "",
+              "Sample of sanitized diagnostic events:",
+              "~~~text",
+              ...report.logLines,
+              "~~~"
+            ].join("\n")
           })
         });
       }

@@ -1,4 +1,6 @@
 import Foundation
+import UIKit
+import Darwin
 
 /// Offline-first, privacy-filtered support reports. The app NEVER uploads
 /// CastDeck-current.log, voice samples, text entries, PINs, hostnames or IPs.
@@ -11,6 +13,14 @@ final class CastDeckAutoReports {
     private let storageKey = "diagnostics.pending.v1"
     private let batchKey = "diagnostics.batch-id.v1"
     private let lastFlushKey = "diagnostics.last-sent.v1"
+    private static func modelIdentifier() -> String {
+        var system = utsname()
+        guard uname(&system) == 0 else { return "unknown" }
+        return withUnsafeBytes(of: &system.machine) { raw in
+            String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
+        }
+    }
+
     private var uploading = false
     private var scheduled = false
 
@@ -130,14 +140,25 @@ final class CastDeckAutoReports {
             let os: String
             let batchID: String
             let events: [Event]
+            let deviceModel: String
+            let iosVersion: String
+            let appBuild: String
+            let timestampUTC: String
+            let logLines: [String]
         }
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
         let body = Body(
-            schema: 1, app: "castdeck",
-            release: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
-            os: "ios",
+            schema: 2, app: "castdeck",
+            release: version, os: "ios",
             batchID: batchID,
             events: snapshot.sorted { $0.key < $1.key }.prefix(25)
-                .map { Event(code: $0.key, count: $0.value) }
+                .map { Event(code: $0.key, count: $0.value) },
+            deviceModel: Self.modelIdentifier(),
+            iosVersion: UIDevice.current.systemVersion,
+            appBuild: build,
+            timestampUTC: ISO8601DateFormatter().string(from: Date()),
+            logLines: CastDeckLog.shared.supportExcerpt(maxLines: 80)
         )
         do {
             var request = URLRequest(url: endpoint)

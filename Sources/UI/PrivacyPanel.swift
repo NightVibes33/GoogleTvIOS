@@ -17,15 +17,15 @@ struct PrivacyPanel: View {
             }
 
             Section("Help improve CastDeck") {
-                Text("When you enable automatic diagnostics in Settings, CastDeck sends only predefined failure types, occurrence counts and app version over HTTPS. No work is needed from you when something goes wrong.")
-                Text("The reporting service groups these anonymous summaries into issues in a private GitHub repository, accessible only to authorized maintainers.")
-                Text("Raw logs, TV names, IP addresses, screen content, microphone recordings, typed text, pairing codes and private keys are never automatically uploaded.")
+                Text("When you enable diagnostics, CastDeck automatically sends the failure type, iPhone model identifier, iOS version, app version/build, UTC time and up to 80 redacted log lines over HTTPS. You do not have to send files manually.")
+                Text("The reporting service groups reports in private GitHub issues accessible only to authorized maintainers. Recent redacted log excerpts are sampled rather than attaching every user's full files.")
+                Text("Complete raw log files, known network identifiers, URLs, screen content, audio, typed text, pairing codes and credentials are excluded from automatic reports. The app and server both filter sensitive details.")
                 Text("You can disable reports at any time. Disabling also clears pending reports from your iPhone. Reporting is unavailable until the publisher finishes configuring the secure service.")
             }
 
             Section("Your saved logs") {
                 Text("Connection and mirroring logs are saved locally in the Files app under On My iPhone → CastDeck → Logs.")
-                Text("These detailed files stay on your iPhone. They can contain local network details and are not included in automatic diagnostics.")
+                Text("The complete files stay on your iPhone. When reporting is enabled, only a short filtered excerpt may be included in automatic diagnostics.")
             }
         }
         .navigationTitle("Privacy")

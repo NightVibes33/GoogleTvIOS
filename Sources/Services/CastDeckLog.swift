@@ -23,6 +23,42 @@ final class CastDeckLog {
     var visibleFolderName: String { "On My iPhone / CastDeck / Logs" }
     var currentLogURL: URL { current }
 
+    /// Recent *sanitized excerpts* for opt-in support reports. The complete
+    /// rotating log stays on the iPhone. Do not include user input or device
+    /// hostnames, IP addresses, tokens, PINs or identifiers in outgoing data.
+    func supportExcerpt(maxLines: Int = 80) -> [String] {
+        queue.sync { [self] in
+            guard let bytes = try? Data(contentsOf: current) else { return [] }
+            let tail = Data(bytes.suffix(96 * 1024))
+            let lines = String(decoding: tail, as: UTF8.self)
+                .split(separator: "\n").suffix(min(maxLines, 80))
+            return lines.map { sanitizeForUpload(String($0)) }
+        }
+    }
+
+    private func sanitizeForUpload(_ input: String) -> String {
+        let sensitive = #"(?i)\b(pass(word|code)?|pin|authorization|bearer|token|secret|credential|cookie|private[\s_-]*key|keyboard[\s_-]*text|text[\s_-]*value|clipboard|typed[\s_-]*text|session[\s_-]*id)\b"#
+        if input.range(of: sensitive, options: .regularExpression) != nil {
+            return "[private diagnostic event omitted]"
+        }
+        var output = String(input.prefix(380))
+        let filters: [(String, String)] = [
+            (#"(?i)https?://[^\s"<>]+"#, "[url]"),
+            (#"\b(?:\d{1,3}\.){3}\d{1,3}\b"#, "[ip]"),
+            (#"(?i)\b(?:[a-f0-9]{0,4}:){2,}[a-f0-9:]{2,}\b"#, "[ipv6]"),
+            (#"(?i)\b[a-z0-9._-]+\.local\b"#, "[host]"),
+            (#"(?i)\b(?:[a-f0-9]{2}[:-]){5}[a-f0-9]{2}\b"#, "[mac]"),
+            (#"(?i)\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b"#, "[email]"),
+            (#"(?i)\b[a-f0-9]{24,}\b"#, "[identifier]"),
+            (#"\b[0-9]{6,10}\b"#, "[number]")
+        ]
+        for (pattern, replacement) in filters {
+            output = output.replacingOccurrences(of: pattern, with: replacement,
+                                                  options: .regularExpression)
+        }
+        return String(output.prefix(300))
+    }
+
     func write(_ category: String, _ message: String) {
         // Automatic reporting receives only a fixed failure code derived
         // locally. No literal log line or network address is uploaded.

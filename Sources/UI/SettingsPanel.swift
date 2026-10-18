@@ -63,21 +63,21 @@ struct SettingsPanel: View {
                 }
 
                 Section("Help improve CastDeck") {
-                    Toggle("Send anonymous diagnostics automatically", isOn: $shareDiagnostics)
+                    Toggle("Share diagnostics automatically", isOn: $shareDiagnostics)
                         .disabled(!(CastDeckAutoReports.shared.configured || CastDeckDiagnostics.shared.canSendReports))
                         .onChange(of: shareDiagnostics) { _, _ in
                             CastDeckDiagnostics.shared.configure()
                             CastDeckAutoReports.shared.preferencesChanged()
                         }
                     Text((CastDeckAutoReports.shared.configured || CastDeckDiagnostics.shared.canSendReports)
-                         ? "CastDeck sends safe failure summaries automatically. You won't need to send us logs. No typed text, PINs, audio, screenshots or full log files are sent."
+                         ? "With your permission, CastDeck sends your iPhone model, iOS version, app version and a short redacted log excerpt when something fails. You never need to export logs."
                          : "Automatic reporting is being set up. It will be available in a future update.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Text("Sharing is off until you turn it on. Reports help us fix issues in future App Store updates.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                    Label("Detailed logs remain on your iPhone.",
+                    Label("Complete logs remain on your iPhone.",
                           systemImage: "lock.shield")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -96,7 +96,7 @@ struct SettingsPanel: View {
                                 .foregroundStyle(.secondary)
                             LabeledContent("Discovered TVs", value: "\(session.devices.count)")
                             LabeledContent("Network", value: session.isConnected ? "Connected" : "Not connected")
-                            Text("Technical logs stay on your iPhone until you choose to share them. Pairing codes and private keys are never intentionally logged.")
+                            Text("Complete logs stay on your iPhone. When reporting is enabled, only a short filtered excerpt is sent securely.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }

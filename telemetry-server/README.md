@@ -29,15 +29,17 @@ The toggle in CastDeck Settings remains disabled while both the diagnostics
 gateway and optional Sentry DSN are unconfigured.
 
 ### Privacy + scaling
-- Client-side allowlist: fixed technical failure codes and bounded counters.
-  No raw Files logs, screenshots, video/audio, text fields, PINs, IP addresses,
-  device names, access tokens, hostnames, or unique install IDs.
+- Client-side allowlist: fixed failure codes and bounded counters, iPhone model,
+  iOS version, CastDeck version/build, UTC time and up to 80 sanitized event
+  lines. Never attach full log files, screenshots, video/audio, typed text,
+  pairing codes, addresses, auth tokens, hostnames, or unique installation IDs.
 - Disabled by default until the customer opts in.
 - Offline queue kept in UserDefaults with bounded counts; retries automatically.
 - Gateway re-validates every event. Rate limited to 24 daily requests per
   daily salted network hash and deduplicated by random one-time batch IDs.
-- **Private** GitHub issues group all reports by error code. A new comment is
-  generated only at 50-occurrence milestones. Individual users are not named.
+- **Private** GitHub issues group by error code. A new issue records sample
+  device/iOS/build and filtered logs. One sample comment is added every 50
+  occurrences to avoid flooding GitHub. Individual users are not named.
 - Configure an appropriate retention policy for private issues and Upstash data.
   API source code alone does not satisfy your app's privacy-policy requirements.
 - Never attach full raw logs or diagnostic archive files to GitHub issues.
