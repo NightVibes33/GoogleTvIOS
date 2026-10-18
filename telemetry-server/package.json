@@ -1,0 +1,10 @@
+{
+  "name": "castdeck-private-telemetry",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --check api/report.mjs && node --test tests/*.test.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

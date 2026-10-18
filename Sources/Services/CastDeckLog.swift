@@ -24,6 +24,11 @@ final class CastDeckLog {
     var currentLogURL: URL { current }
 
     func write(_ category: String, _ message: String) {
+        // Automatic reporting receives only a fixed failure code derived
+        // locally. No literal log line or network address is uploaded.
+        Task { @MainActor in
+            CastDeckAutoReports.shared.observe(category: category, detail: message)
+        }
         // Never record pairing codes, passwords, key material, or raw device credentials.
         let clean = message.replacingOccurrences(of: "\r", with: " ")
             .replacingOccurrences(of: "\n", with: " ")

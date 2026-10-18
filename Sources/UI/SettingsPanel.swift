@@ -63,17 +63,21 @@ struct SettingsPanel: View {
                 }
 
                 Section("Help improve CastDeck") {
-                    Toggle("Share crash and issue reports", isOn: $shareDiagnostics)
-                        .disabled(!CastDeckDiagnostics.shared.canSendReports)
+                    Toggle("Send anonymous diagnostics automatically", isOn: $shareDiagnostics)
+                        .disabled(!(CastDeckAutoReports.shared.configured || CastDeckDiagnostics.shared.canSendReports))
                         .onChange(of: shareDiagnostics) { _, _ in
                             CastDeckDiagnostics.shared.configure()
+                            CastDeckAutoReports.shared.preferencesChanged()
                         }
-                    Text(CastDeckDiagnostics.shared.canSendReports
-                         ? "Helps fix crashes and connection problems. Reports include app version and issue categories. PINs, typed text, audio, screen images and log files are never automatically attached."
-                         : "Automatic reporting will be available when CastDeck's support service is configured. You can still share a log file manually.")
+                    Text((CastDeckAutoReports.shared.configured || CastDeckDiagnostics.shared.canSendReports)
+                         ? "CastDeck sends safe failure summaries automatically. You won't need to send us logs. No typed text, PINs, audio, screenshots or full log files are sent."
+                         : "Automatic reporting is being set up. It will be available in a future update.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                    Label("Your existing logs always stay in Files unless you choose to share them.",
+                    Text("Sharing is off until you turn it on. Reports help us fix issues in future App Store updates.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Label("Detailed logs remain on your iPhone.",
                           systemImage: "lock.shield")
                         .font(.footnote)
                         .foregroundStyle(.secondary)

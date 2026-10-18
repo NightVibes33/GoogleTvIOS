@@ -292,3 +292,33 @@ https://play.google.com/store/apps/details?id=com.google.android.tv.remote.servi
 Android TV Remote v2 messages
 https://github.com/tronikos/androidtvremote2/blob/main/src/androidtvremote2/remotemessage.proto,
 Sentry Cocoa SDK https://github.com/getsentry/sentry-cocoa .
+
+## v2.2 — automatic reports to **private** GitHub Issues
+
+CastDeck now classifies a small set of known TV-connection, pairing,
+keyboard, voice, and mirroring failures into allowlisted diagnostic codes
+on-device. No raw local log text is copied into the report queue. On opt-in
+(Settings → Send anonymous diagnostics automatically), failure counts
+are saved offline and periodically delivered over HTTPS, including on app
+foreground after a network interruption. Sending is automatic; customers
+never need to export logs manually to obtain support. Turning the toggle
+off purges unsent reports.
+
+The new serverless backend lives in `telemetry-server/`. It validates
+only fixed incident codes and bounded counts, rejects a public GitHub
+destination, requires server-side Redis throttling and batch deduplication,
+and creates **one issue per failure type** in a separately managed private
+GitHub repository. A milestone comment is created approximately once
+per 50 occurrences. Private tokens and infrastructure secrets must only
+live in the hosting provider's encrypted environment settings.
+
+**Go-live blocked until configured:** the iOS Info.plist
+`CastDeckTelemetryEndpoint` remains blank until a live HTTPS backend
+passes its private-repository/credential test. The consumer toggle is
+disabled while both this endpoint and the optional Sentry DSN are absent.
+See `telemetry-server/README.md` to enable the service. A real repository,
+GitHub Issues write token, Redis and deployment are mandatory; none are
+embedded or guessed. For public App Store rollout, also publish an accurate
+privacy policy and update Apple App Privacy disclosures for optional
+diagnostic collection. Do not describe aggregated failure codes as full
+customer log files.

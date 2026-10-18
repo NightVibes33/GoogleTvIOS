@@ -4,10 +4,14 @@ import SwiftUI
 struct CastDeckApp: App {
     @StateObject private var session = TVSessionModel()
     @AppStorage("appearanceMode") private var appearance = "system"
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         CastDeckLog.shared.write("app", "CastDeck started")
         CastDeckDiagnostics.shared.configure()
+        Task { @MainActor in
+            CastDeckAutoReports.shared.schedule()
+        }
     }
 
     private var scheme: ColorScheme? {
@@ -23,6 +27,11 @@ struct CastDeckApp: App {
             RootView()
                 .environmentObject(session)
                 .preferredColorScheme(scheme)
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active {
+                        Task { await CastDeckAutoReports.shared.flush() }
+                    }
+                }
         }
     }
 }
