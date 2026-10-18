@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct DevicePanel: View {
     @EnvironmentObject private var session: TVSessionModel
@@ -18,8 +19,17 @@ struct DevicePanel: View {
                         }
                     }
                     .disabled(session.isScanning)
+                    Text(session.discoveryDetails)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                        UIApplication.shared.open(url)
+                    } label: {
+                        Label("Open Local Network permissions", systemImage: "gearshape")
+                    }
                 } footer: {
-                    Text("The iPhone and TV must be on the same local network. Allow Local Network access when prompted.")
+                    Text("Keep the TV on and on the same Wi-Fi. If the list is empty, allow Local Network for CastDeck in iPhone Settings, disable guest-network isolation, or enter the TV IP below.")
                 }
 
                 if let selected = session.selected {
@@ -50,9 +60,9 @@ struct DevicePanel: View {
                 Section("Nearby devices") {
                     if session.devices.isEmpty {
                         ContentUnavailableView(
-                            "No TVs discovered",
+                            "No nearby TVs yet",
                             systemImage: "tv.slash",
-                            description: Text("Scan again, or enter a TV IP address below.")
+                            description: Text(session.isScanning ? "Searching for Google TV and Chromecast…" : "Enter your TV's IP address below, or check Local Network access.")
                         )
                     }
                     ForEach(session.devices) { device in
@@ -67,14 +77,18 @@ struct DevicePanel: View {
                                     .foregroundStyle(Theme.accent)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(device.name).foregroundStyle(.primary)
-                                    Text(device.supportsRemote ? "Google TV / Android TV remote" : "Cast-only • no D-pad protocol")
+                                    Text(device.host.isEmpty ? "Resolving network address…" :
+                                        device.supportsRemote ? "Google TV remote · " + device.host :
+                                        "Chromecast discovered · " + device.host)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
+                                        .lineLimit(2)
                                 }
                                 Spacer()
                                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                             }
                         }
+                        .disabled(device.host.isEmpty)
                     }
                 }
 
@@ -126,7 +140,7 @@ struct DevicePanel: View {
                     }
                 }
             }
-            .navigationTitle("Choose a TV")
+            .navigationTitle("Connect to TV")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -137,6 +151,7 @@ struct DevicePanel: View {
         .onAppear {
             if session.devices.isEmpty && !session.isScanning { session.scan() }
         }
+        .presentationDragIndicator(.visible)
     }
 
     private func connectManual() {

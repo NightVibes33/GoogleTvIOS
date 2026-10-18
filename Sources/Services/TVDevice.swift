@@ -5,10 +5,10 @@ struct TVDevice: Identifiable, Hashable, Codable {
         case googleTV
         case castOnly
     }
-    var id: String { host + ":" + String(port) + ":" + kind.rawValue }
+    var id: String { (host.isEmpty ? name : host) + ":" + String(port) + ":" + kind.rawValue }
     let name: String
     let host: String
-    let port: Int
+    var port: Int
     var kind: Kind = .googleTV
 
     var supportsRemote: Bool { kind == .googleTV }

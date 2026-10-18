@@ -4,7 +4,7 @@ struct SettingsPanel: View {
     @EnvironmentObject private var session: TVSessionModel
     @AppStorage("hapticsEnabled") private var haptics = true
     @AppStorage("autoScan") private var autoScan = true
-    @AppStorage("appearanceMode") private var appearance = "system"
+    @AppStorage("controlMode") private var controlMode = "dpad"
     @State private var showingDevices = false
 
     var body: some View {
@@ -29,10 +29,9 @@ struct SettingsPanel: View {
                 Section("Remote preferences") {
                     Toggle("Haptic feedback", isOn: $haptics)
                     Toggle("Discover TVs on launch", isOn: $autoScan)
-                    Picker("Appearance", selection: $appearance) {
-                        Text("System").tag("system")
-                        Text("Light").tag("light")
-                        Text("Dark").tag("dark")
+                    Picker("Navigation style", selection: $controlMode) {
+                        Text("Direction pad").tag("dpad")
+                        Text("Swipe touchpad").tag("swipe")
                     }
                 }
 
@@ -42,6 +41,7 @@ struct SettingsPanel: View {
                               message: Text("Local session events without pairing PINs or private keys")) {
                         Label("Export session log", systemImage: "square.and.arrow.up")
                     }
+                    LabeledContent("Discovery", value: session.discoveryDetails)
                     LabeledContent("Connection protocol", value: "Android TV Remote v2")
                     LabeledContent("Remote port", value: "TCP 6466")
                     LabeledContent("Pairing port", value: "TCP 6467")
@@ -59,7 +59,7 @@ struct SettingsPanel: View {
 
                 Section("About") {
                     LabeledContent("App", value: "CastDeck")
-                    LabeledContent("Version", value: "1.1")
+                    LabeledContent("Version", value: "1.2")
                     Text("Independent open-source Google TV remote. Not affiliated with Google.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)

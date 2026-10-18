@@ -1,128 +1,206 @@
 import SwiftUI
 import UIKit
 
-/// Remote-first, fully tappable Google TV controller. Controls never escape a fixed-size shell.
+/// Familiar Google TV handheld layout adapted to fill the iPhone display.
 struct RemotePanel: View {
     @EnvironmentObject private var session: TVSessionModel
-    @AppStorage("hapticsEnabled") private var hapticsEnabled = true
+    @AppStorage("hapticsEnabled") private var haptics = true
+    @AppStorage("controlMode") private var controlMode = "dpad"
     @State private var showingKeyboard = false
 
+    let dpadSize: CGFloat
+    private let remoteSurface = Color(red: 0.22, green: 0.23, blue: 0.25)
+    private let keySurface = Color(red: 0.25, green: 0.26, blue: 0.28)
+
     var body: some View {
-        VStack(spacing: 16) {
-            HStack {
-                Label("Remote", systemImage: "apps.iphone")
-                    .font(.headline)
+        VStack(spacing: 18) {
+            if controlMode == "swipe" {
+                swipePad
+            } else {
+                directionalPad
+            }
+
+            HStack(spacing: 30) {
+                roundKey("arrow.uturn.backward", label: "Back", key: .back)
+                Spacer(minLength: 0)
+                roundKey("house.fill", label: "Home", key: .home, emphasized: true)
+                Spacer(minLength: 0)
+                roundKey("magnifyingglass", label: "TV search", key: .search)
+            }
+            .padding(.horizontal, 14)
+
+            HStack(spacing: 10) {
+                roundKey("speaker.slash.fill", label: "Mute", key: .volumeMute)
+                HStack(spacing: 0) {
+                    volumeKey("speaker.minus.fill", label: "Volume down", key: .volumeDown)
+                    Rectangle()
+                        .fill(.white.opacity(0.08))
+                        .frame(width: 1, height: 28)
+                    volumeKey("speaker.plus.fill", label: "Volume up", key: .volumeUp)
+                }
+                .frame(height: 58)
+                .background(Capsule().fill(keySurface))
+            }
+
+            HStack(spacing: 18) {
+                compactKey("playpause.fill", label: "Play or pause", key: .playPause)
                 Spacer()
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(session.isConnected ? .green : .secondary)
-                        .frame(width: 8, height: 8)
-                    Text(session.isConnected ? "Connected" : "Not connected")
-                        .font(.caption)
+                Button { showingKeyboard = true } label: {
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 20, weight: .medium))
+                        .frame(width: 54, height: 48)
                 }
-                .foregroundStyle(.secondary)
+                .disabled(!session.isConnected)
+                .accessibilityLabel("TV keyboard")
+                Spacer()
+                compactKey("line.3.horizontal", label: "TV menu", key: .menu)
+                Spacer()
+                compactKey("gearshape", label: "TV settings", key: .settings)
             }
-            .padding(.horizontal, 4)
-
-            VStack(spacing: 16) {
-                HStack {
-                    action("power", "Power", color: Theme.destructive) { send(.power) }
-                    Spacer()
-                    action("magnifyingglass", "Search") { send(.search) }
-                    action("keyboard", "Open keyboard") { showingKeyboard = true }
-                    action("gearshape", "TV settings") { send(.settings) }
-                }
-                .padding(.horizontal, 12)
-
-                dpad
-
-                HStack(spacing: 24) {
-                    action("chevron.backward", "Back") { send(.back) }
-                    Spacer()
-                    action("house.fill", "Home") { send(.home) }
-                    Spacer()
-                    action("line.3.horizontal", "TV menu") { send(.menu) }
-                }
-                .padding(.horizontal, 16)
-
-                HStack(spacing: 14) {
-                    action("speaker.minus.fill", "Volume down") { send(.volumeDown) }
-                    action("speaker.slash.fill", "Mute") { send(.volumeMute) }
-                    action("speaker.plus.fill", "Volume up") { send(.volumeUp) }
-                    Spacer(minLength: 4)
-                    action("playpause.fill", "Play or pause") { send(.playPause) }
-                }
-                .padding(.horizontal, 5)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 18)
-            .background(
-                RoundedRectangle(cornerRadius: 34, style: .continuous)
-                    .fill(Theme.remoteShell.gradient)
-            )
-            .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
-            .disabled(!session.isConnected)
-            .opacity(session.isConnected ? 1 : 0.63)
+            .foregroundStyle(.white.opacity(0.85))
+            .padding(.horizontal, 12)
         }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
         .sheet(isPresented: $showingKeyboard) {
             TextInputPanel().environmentObject(session)
         }
     }
 
-    private var dpad: some View {
+    private var directionalPad: some View {
         ZStack {
             Circle()
-                .fill(Theme.remoteWell)
-                .frame(width: 252, height: 252)
+                .fill(
+                    RadialGradient(colors: [
+                        Color(red: 0.27, green: 0.28, blue: 0.30),
+                        remoteSurface
+                    ], center: .center, startRadius: 8, endRadius: dpadSize * 0.52)
+                )
+                .overlay {
+                    Circle()
+                        .stroke(.white.opacity(0.065), lineWidth: 1)
+                }
             Circle()
-                .stroke(.white.opacity(0.08), lineWidth: 1)
-                .frame(width: 252, height: 252)
+                .stroke(.black.opacity(0.14), lineWidth: 1)
+                .padding(3)
 
-            dpadButton("chevron.up", "Up", .up).offset(y: -84)
-            dpadButton("chevron.down", "Down", .down).offset(y: 84)
-            dpadButton("chevron.left", "Left", .left).offset(x: -84)
-            dpadButton("chevron.right", "Right", .right).offset(x: 84)
+            direction("chevron.up", label: "Up", key: .up)
+                .offset(y: -dpadSize * 0.342)
+            direction("chevron.down", label: "Down", key: .down)
+                .offset(y: dpadSize * 0.342)
+            direction("chevron.left", label: "Left", key: .left)
+                .offset(x: -dpadSize * 0.342)
+            direction("chevron.right", label: "Right", key: .right)
+                .offset(x: dpadSize * 0.342)
 
             Button { send(.ok) } label: {
                 Text("OK")
-                    .font(.system(.title3, design: .rounded, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 82, height: 82)
-                    .background(Circle().fill(Theme.remoteShell))
-                    .overlay(Circle().stroke(.white.opacity(0.13)))
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .frame(width: dpadSize * 0.43, height: dpadSize * 0.43)
+                    .background(
+                        Circle().fill(Color(red: 0.39, green: 0.40, blue: 0.43))
+                    )
+                    .overlay {
+                        Circle().stroke(.white.opacity(0.06), lineWidth: 1)
+                    }
+                    .contentShape(Circle())
             }
+            .buttonStyle(.plain)
+            .disabled(!session.isConnected)
             .accessibilityLabel("Select")
         }
-        .frame(maxWidth: .infinity)
+        .frame(width: dpadSize, height: dpadSize)
         .accessibilityElement(children: .contain)
     }
 
-    private func dpadButton(_ image: String, _ label: String, _ key: TVKey) -> some View {
-        Button { send(key) } label: {
-            Image(systemName: image)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 56, height: 56)
-                .contentShape(Circle())
+    private var swipePad: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                .fill(remoteSurface)
+            VStack(spacing: 10) {
+                Image(systemName: "hand.draw")
+                    .font(.system(size: 30, weight: .ultraLight))
+                    .foregroundStyle(.white.opacity(0.46))
+                Text("Swipe to navigate")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.55))
+                Text("Tap to select")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.42))
+            }
         }
+        .frame(height: dpadSize)
+        .contentShape(RoundedRectangle(cornerRadius: 34))
+        .onTapGesture { send(.ok) }
+        .gesture(
+            DragGesture(minimumDistance: 22)
+                .onEnded { value in
+                    guard session.isConnected else { return }
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    if abs(dx) > abs(dy) {
+                        send(dx > 0 ? .right : .left)
+                    } else {
+                        send(dy > 0 ? .down : .up)
+                    }
+                }
+        )
+        .accessibilityLabel("Swipe touchpad. Tap to select.")
+    }
+
+    private func direction(_ systemName: String, label: String, key: TVKey) -> some View {
+        Button { send(key) } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 23, weight: .medium))
+                .foregroundStyle(.white.opacity(0.70))
+                .frame(width: 62, height: 58)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!session.isConnected)
         .accessibilityLabel(label)
     }
 
-    private func action(_ image: String, _ label: String, color: Color = .white,
-                        perform: @escaping () -> Void) -> some View {
-        Button(action: perform) {
-            Image(systemName: image)
-                .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(color)
-                .frame(width: 50, height: 50)
-                .background(Circle().fill(Theme.remoteWell))
+    private func roundKey(_ systemName: String, label: String, key: TVKey,
+                          emphasized: Bool = false) -> some View {
+        Button { send(key) } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 20, weight: .semibold))
+                .frame(width: emphasized ? 68 : 58, height: emphasized ? 68 : 58)
+                .background(Circle().fill(emphasized ? Color(red: 0.30, green: 0.31, blue: 0.34) : keySurface))
         }
         .buttonStyle(.plain)
+        .disabled(!session.isConnected)
+        .accessibilityLabel(label)
+    }
+
+    private func volumeKey(_ systemName: String, label: String, key: TVKey) -> some View {
+        Button { send(key) } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 20, weight: .medium))
+                .frame(maxWidth: .infinity, minHeight: 58)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!session.isConnected)
+        .accessibilityLabel(label)
+    }
+
+    private func compactKey(_ systemName: String, label: String, key: TVKey) -> some View {
+        Button { send(key) } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 20, weight: .medium))
+                .frame(width: 54, height: 48)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!session.isConnected)
         .accessibilityLabel(label)
     }
 
     private func send(_ key: TVKey) {
-        if hapticsEnabled { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+        guard session.isConnected else { return }
+        if haptics { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
         session.send(key)
     }
 }

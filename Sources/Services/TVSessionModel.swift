@@ -12,6 +12,7 @@ final class TVSessionModel: ObservableObject {
     @Published var status = "Choose a Google TV to connect"
     @Published var lastError: String?
     @Published var pairingCode = ""
+    @Published var discoveryDetails = "Not scanned yet"
     @Published private(set) var logs: [String] = []
 
     private let discovery = DiscoveryService()
@@ -44,6 +45,7 @@ final class TVSessionModel: ObservableObject {
           "Selected device: " + (selected?.name ?? "none"),
           "State: " + status,
           "Connected: " + String(isConnected),
+          "Discovery: " + discoveryDetails,
           ""] + logs).joined(separator: "\n")
     }
 
@@ -54,12 +56,26 @@ final class TVSessionModel: ObservableObject {
         status = "Looking for devices on Wi-Fi…"
         record("Starting Bonjour discovery")
         Task {
-            let result = await discovery.scan()
-            devices = result
+            let result = await discovery.scan(timeout: 9) { [weak self] found, message in
+                guard let self else { return }
+                self.devices = found
+                self.discoveryDetails = message
+                self.record("Bonjour: " + message)
+            }
+            devices = result.devices
             isScanning = false
-            status = result.isEmpty ? "No devices found. Check local network permissions or add an IP." :
-                "Found \(result.count) device\(result.count == 1 ? "" : "s")"
-            record("Discovery completed: \(result.count) device(s)")
+            discoveryDetails = "Services advertised: \(result.servicesFound), resolved addresses: \(result.resolved)"
+            if result.devices.contains(where: { !$0.host.isEmpty }) {
+                status = "Found \(result.devices.count) device(s) — choose a TV"
+            } else if result.servicesFound > 0 {
+                status = "TV advertised, but its address could not be resolved"
+            } else {
+                status = "No Bonjour services found — check Wi-Fi, permissions, or enter TV IP"
+            }
+            if let error = result.errors.first {
+                lastError = error
+            }
+            record("Discovery finished: " + discoveryDetails)
         }
     }
 
