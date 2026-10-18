@@ -32,8 +32,8 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
 
     func availableReceivers() -> [Receiver] {
         let manager = GCKCastContext.sharedInstance().discoveryManager
-        return (0..<Int(manager.deviceCount)).compactMap { index in
-            guard let device = manager.device(at: UInt(index)) else { return nil }
+        return (0..<Int(manager.deviceCount)).map { index in
+            let device = manager.device(at: UInt(index))
             return Receiver(id: device.deviceID, name: device.friendlyName ?? "Chromecast")
         }
     }
