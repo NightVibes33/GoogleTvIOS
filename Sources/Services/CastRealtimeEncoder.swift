@@ -146,17 +146,33 @@ final class CastRealtimeEncoder {
         let key = !sync
         var annexB = Data()
         let startCode = Data([0,0,0,1])
-        if key && codec == kCMVideoCodecType_H264 {
-            for index in 0..<2 {
+        if key {
+            // The receiver starts decoding on IDR. Include the decoder
+            // configuration on *each* keyframe so late joins and picture-loss
+            // recovery can recover without waiting for an out-of-band SPS/PPS.
+            let hevc = codec == kCMVideoCodecType_HEVC
+            for index in 0..<(hevc ? 3 : 2) {
                 var pointer: UnsafePointer<UInt8>?
                 var size = 0
                 var count = 0
                 var nalLength: Int32 = 0
-                if CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-                    format, parameterSetIndex: index, parameterSetPointerOut: &pointer,
-                    parameterSetSizeOut: &size, parameterSetCountOut: &count,
-                    nalUnitHeaderLengthOut: &nalLength) == noErr,
-                   let pointer, size > 0 {
+                let status: OSStatus
+                if hevc {
+                    status = CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(
+                        format, parameterSetIndex: index,
+                        parameterSetPointerOut: &pointer,
+                        parameterSetSizeOut: &size,
+                        parameterSetCountOut: &count,
+                        nalUnitHeaderLengthOut: &nalLength)
+                } else {
+                    status = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                        format, parameterSetIndex: index,
+                        parameterSetPointerOut: &pointer,
+                        parameterSetSizeOut: &size,
+                        parameterSetCountOut: &count,
+                        nalUnitHeaderLengthOut: &nalLength)
+                }
+                if status == noErr, let pointer, size > 0 {
                     annexB.append(startCode)
                     annexB.append(pointer, count: size)
                 }
