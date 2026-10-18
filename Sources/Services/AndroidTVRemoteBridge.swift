@@ -142,8 +142,32 @@ final class AndroidTVRemoteBridge {
         case .search: button = .KEYCODE_SEARCH
         case .menu: button = .KEYCODE_MENU
         case .settings: button = .KEYCODE_SETTINGS
+        case .delete: button = .KEYCODE_DEL
+        case .enter: button = .KEYCODE_ENTER
         }
         remote.send(KeyPress(button))
+    }
+
+    func sendText(_ value: String) async throws {
+        guard connected else { throw AndroidTVClientError.notConnected }
+        guard !value.isEmpty, value.unicodeScalars.count <= 200 else {
+            throw AndroidTVClientError.underlying("Enter 1–200 characters.")
+        }
+        // The upstream API supports Android KeyPress commands but has no text-input payload.
+        // Validate every character before transmitting any events.
+        let keys: [Key] = try value.unicodeScalars.map { scalar in
+            switch scalar.value {
+            case 65...90: return Key(rawValue: UInt(scalar.value - 65 + 29))!
+            case 97...122: return Key(rawValue: UInt(scalar.value - 97 + 29))!
+            case 48...57: return Key(rawValue: UInt(scalar.value - 48 + 7))!
+            case 32: return .KEYCODE_SPACE
+            case 10, 13: return .KEYCODE_ENTER
+            default: throw AndroidTVClientError.underlying(
+                "Keyboard currently supports A–Z, 0–9, spaces and new lines."
+            )
+            }
+        }
+        for key in keys { remote.send(KeyPress(key)) }
     }
 
     func launchApp(_ appId: String) async throws {

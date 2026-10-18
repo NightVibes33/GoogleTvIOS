@@ -16,4 +16,6 @@ enum TVKey: String, CaseIterable {
     case search = "SEARCH"
     case menu = "MENU"
     case settings = "SETTINGS"
+    case delete = "DEL"
+    case enter = "ENTER"
 }

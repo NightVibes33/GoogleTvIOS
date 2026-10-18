@@ -5,6 +5,7 @@ import UIKit
 struct RemotePanel: View {
     @EnvironmentObject private var session: TVSessionModel
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
+    @State private var showingKeyboard = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -28,6 +29,7 @@ struct RemotePanel: View {
                     action("power", "Power", color: Theme.destructive) { send(.power) }
                     Spacer()
                     action("magnifyingglass", "Search") { send(.search) }
+                    action("keyboard", "Open keyboard") { showingKeyboard = true }
                     action("gearshape", "TV settings") { send(.settings) }
                 }
                 .padding(.horizontal, 12)
@@ -61,6 +63,9 @@ struct RemotePanel: View {
             .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
             .disabled(!session.isConnected)
             .opacity(session.isConnected ? 1 : 0.63)
+        }
+        .sheet(isPresented: $showingKeyboard) {
+            TextInputPanel().environmentObject(session)
         }
     }
 

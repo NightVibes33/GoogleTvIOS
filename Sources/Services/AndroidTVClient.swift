@@ -44,6 +44,10 @@ final class AndroidTVClient {
         try await transport().sendKey(key)
     }
 
+    func sendText(_ text: String) async throws {
+        try await transport().sendText(text)
+    }
+
     func launchApp(_ appId: String) async throws {
         try await transport().launchApp(appId)
     }

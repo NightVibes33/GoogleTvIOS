@@ -30,7 +30,7 @@ If pairing is revoked on the TV, reconnect and pair again. The TV's certificate 
 
 ## Settings
 
-Haptic feedback, automatic discovery, system/light/dark appearance, reconnect/disconnect, plain-text diagnostics sharing, and compatibility details.
+Haptic feedback, automatic discovery, system/light/dark appearance, reconnect/disconnect, plain-text diagnostics sharing, and compatibility details. The remote includes a TV keyboard for A–Z, 0–9 and spaces using Android key events.
 
 ## Development
 

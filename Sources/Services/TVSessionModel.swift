@@ -65,7 +65,6 @@ final class TVSessionModel: ObservableObject {
 
     func connect(to device: TVDevice) {
         guard device.supportsRemote else {
-            selected = device
             lastError = "This is a cast-only Chromecast. It does not support the Google TV directional remote. Use casting controls for this receiver."
             status = "Cast-only device"
             record("Rejected unsupported cast-only remote: " + device.name)
@@ -169,6 +168,20 @@ final class TVSessionModel: ObservableObject {
                 lastError = error.localizedDescription
                 status = "Remote command failed"
                 record("Command failed: " + error.localizedDescription)
+            }
+        }
+    }
+
+    func sendText(_ text: String) {
+        guard isConnected else { return }
+        Task {
+            do {
+                try await client.sendText(text)
+                status = "Keyboard input sent"
+                record("Sent keyboard input (" + String(text.count) + " characters)")
+            } catch {
+                lastError = error.localizedDescription
+                record("Keyboard command failed: " + error.localizedDescription)
             }
         }
     }
