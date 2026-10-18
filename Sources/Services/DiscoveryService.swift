@@ -228,6 +228,13 @@ final class DiscoveryService: NSObject, NetServiceBrowserDelegate, NetServiceDel
 
     func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
         let code = errorDict["NSNetServicesErrorCode"]?.intValue ?? 0
+        if code == -72000 && !sortedDevices.isEmpty {
+            // iOS may terminate an outstanding Bonjour browser after enough
+            // services have resolved. This is not a failed TV search when a
+            // reachable TV was already found, and must not mask success.
+            notify("Finished discovering " + String(sortedDevices.count) + " TV(s)")
+            return
+        }
         let error = code == -72008
             ? "Bonjour configuration missing (-72008). Reinstall the corrected IPA with local-network declarations."
             : "Bonjour browser failed (\(code)): " + errorDict.description

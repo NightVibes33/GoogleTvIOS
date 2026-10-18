@@ -24,6 +24,7 @@ final class MirrorSession: ObservableObject {
     private var capture: AnyObject?
     private var generation = UUID()
     private var encoderFailure: String?
+    private var castFailure: String?
     private var refreshTask: Task<Void, Never>?
 
     init() {
@@ -33,6 +34,7 @@ final class MirrorSession: ObservableObject {
         }
         cast.onFailure = { [weak self] value in
             Task { @MainActor in
+                self?.castFailure = value
                 self?.error = value
                 self?.record("Receiver error: " + value)
             }
@@ -62,7 +64,11 @@ final class MirrorSession: ObservableObject {
             guard let self else { return }
             for _ in 0..<15 {
                 if Task.isCancelled { return }
-                receivers = cast.availableReceivers()
+                let found = cast.availableReceivers()
+                // Screen-sharing UI can suspend Cast discovery. Preserve the
+                // last known picker selection instead of clearing it on an
+                // empty transient SDK response.
+                if !found.isEmpty { receivers = found }
                 try? await Task.sleep(nanoseconds: 900_000_000)
             }
         }
@@ -79,6 +85,7 @@ final class MirrorSession: ObservableObject {
         isStarting = true
         error = nil
         encoderFailure = nil
+        castFailure = nil
         store.reset()
         record("Starting local HLS server; app audio capture enabled")
         Task {
@@ -88,6 +95,12 @@ final class MirrorSession: ObservableObject {
                 let urlString = try await http.start()
                 guard generation == current, let url = URL(string: urlString) else { return }
                 record("Local stream ready: " + urlString)
+                // The iOS system capture picker can background this app,
+                // suspending Google Cast discovery. Start the Cast session
+                // now while the receiver is still present in the SDK.
+                try cast.prepare(receiverID: receiverID)
+                guard generation == current else { return }
+                record("Chromecast connection requested before screen picker")
                 let encoder = CastHLSEncoder(store: store, quality4K: quality4K)
                 encoder.onStatus = { [weak self] message in
                     Task { @MainActor in self?.record(message) }
@@ -121,6 +134,9 @@ final class MirrorSession: ObservableObject {
                     if let encoderFailure {
                         throw MirrorError.writerFailed(encoderFailure)
                     }
+                    if let castFailure {
+                        throw MirrorError.castFailed(castFailure)
+                    }
                     if store.segmentCount > 0 { break }
                     if engine.cancelled {
                         throw MirrorError.writerFailed("Screen sharing ended before video was ready")
@@ -131,13 +147,13 @@ final class MirrorSession: ObservableObject {
                 guard store.segmentCount > 0 else {
                     throw MirrorError.writerFailed("No encoded HLS media arrived. Check screen sharing permission and screen recording restrictions.")
                 }
-                try cast.cast(receiverID: receiverID, mediaURL: url)
+                cast.publish(mediaURL: url)
                 #else
                 throw MirrorError.writerFailed("ScreenCaptureKit is unavailable in the iOS simulator. Install the IPA on a physical iPhone.")
                 #endif
                 isStarting = false
                 isMirroring = true
-                record("Sending live " + (quality4K ? "4K HEVC" : "1080p H.264") + " video and AAC device audio")
+                record("Live HLS stream prepared; Cast playback request sent or queued for session resume")
             } catch {
                 guard generation == current else { return }
                 self.error = error.localizedDescription

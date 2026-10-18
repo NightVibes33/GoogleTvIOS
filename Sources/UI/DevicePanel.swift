@@ -8,6 +8,26 @@ struct DevicePanel: View {
     @State private var troubleshooting = false
     @FocusState private var ipFocused: Bool
 
+    /// The connected receiver lives only under "My TV", never again in
+    /// "Nearby TVs". A hostname can change to a resolved IPv4 during scanning.
+    private var nearbyDevices: [TVDevice] {
+        guard session.isConnected, let connected = session.selected else {
+            return session.devices
+        }
+        let sameName = session.devices.filter {
+            $0.name.localizedCaseInsensitiveCompare(connected.name) == .orderedSame
+        }
+        return session.devices.filter { device in
+            if device.host == connected.host { return false }
+            // If Bonjour uses the numeric IP and the saved TV uses .local,
+            // matching a unique friendly name also identifies the same TV.
+            if sameName.count == 1 && device.name.localizedCaseInsensitiveCompare(connected.name) == .orderedSame {
+                return false
+            }
+            return true
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -51,16 +71,17 @@ struct DevicePanel: View {
                 }
 
                 Section {
-                    if session.devices.isEmpty {
+                    if nearbyDevices.isEmpty {
                         ContentUnavailableView(
-                            "Looking for your TV",
+                            session.isConnected ? "No other TVs found" : "Looking for your TV",
                             systemImage: "tv",
                             description: Text(session.isScanning ?
-                                "Finding TVs on your Wi-Fi network…" :
-                                "No TV resolved yet. Scan again or enter its IP address below.")
+                                "Searching for other televisions…" :
+                                session.isConnected ? "You're already connected to your TV." :
+                                "No TV found yet. Scan again or enter its IP address below.")
                         )
                     }
-                    ForEach(session.devices) { device in
+                    ForEach(nearbyDevices) { device in
                         if device.supportsRemote {
                             Button {
                                 session.connect(to: device)
@@ -77,7 +98,7 @@ struct DevicePanel: View {
                     HStack {
                         Text("Nearby televisions")
                         Spacer()
-                        Text("\(session.devices.count) found")
+                        Text("\(nearbyDevices.count) available")
                             .textCase(nil)
                             .font(.caption)
                             .foregroundStyle(.secondary)

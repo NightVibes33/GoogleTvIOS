@@ -114,6 +114,28 @@ addresses such as the previously observed `16.2.0.0`. We do **not**
 assert successful Chromecast playback or audio synchronization without a
 physical-device test. Protected content may remain unavailable.
 
+## Connected TV picker and Google Cast session handoff (v1.4.1)
+
+The **My TV** section is the only place an actively connected receiver appears.
+**Nearby televisions** lists only other discovered devices. A unique matching
+friendly name also handles the case where a saved receiver uses a `.local`
+hostname but Bonjour resolves it to an IPv4 address.
+
+Screen mirroring now caches the Google Cast SDK's selected `GCKDevice` and
+requests a Cast session **before** opening the iOS screen-sharing picker.
+This avoids losing the selected device when the system picker suspends SDK
+device discovery. It postpones the live media LOAD until at least one HLS
+fragment has been encoded. If the Cast session resumes after the picker,
+the pending media URL is loaded then.
+
+A late Bonjour `-72000` browser error is nonfatal once at least one TV has
+already resolved successfully; failure information remains available for scans
+that find no usable devices.
+
+**Physical test still required:** a successful HLS segment and successful
+Cast session startup do not prove the Chromecast actually started decoding
+video/audio. Check the file logs under Files → On My iPhone → CastDeck → Logs.
+
 ## License
 
 MIT. Independent application; not affiliated with Google.

@@ -15,6 +15,9 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
     private var activeReceiverID: String?
     private var loading = false
     private var listenerRegistered = false
+    // Discovery is suspended by iOS when the system screen-sharing picker
+    // backgrounds the sender. Keep strong GCKDevice references from selection.
+    private var discoveredDevices: [String: GCKDevice] = [:]
 
     override init() {
         super.init()
@@ -43,6 +46,7 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
             // Its unique deviceID, not the DNS-SD service instance, identifies it.
             let id = device.deviceID
             guard !id.isEmpty else { continue }
+            discoveredDevices[id] = device
             let friendly = device.friendlyName?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let label = friendly.flatMap { $0.isEmpty ? nil : $0 } ?? "Unnamed Chromecast"
@@ -53,23 +57,51 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
         }
     }
 
-    func cast(receiverID: String, mediaURL: URL) throws {
-        guard let device = GCKCastContext.sharedInstance().discoveryManager
-            .device(withUniqueID: receiverID) else {
-            throw MirrorError.castFailed("Receiver is no longer visible to the Google Cast SDK. Refresh the device list.")
+    /// Establish the Cast session *before* presenting iOS screen sharing.
+    /// ScreenCaptureKit's system picker can temporarily suspend SDK discovery.
+    /// Once the video encoder has media, publish() loads it into this session.
+    func prepare(receiverID: String) throws {
+        startDiscovery()
+        let discovery = GCKCastContext.sharedInstance().discoveryManager
+        guard let device = discovery.device(withUniqueID: receiverID) ??
+                           discoveredDevices[receiverID] else {
+            throw MirrorError.castFailed("Your TV is not reachable. Open Screen Mirror again and refresh your devices.")
         }
-        self.mediaURL = mediaURL
-        self.activeReceiverID = receiverID
-        self.loading = false
+        discoveredDevices[receiverID] = device
+        activeReceiverID = receiverID
+        mediaURL = nil
+        loading = false
         let manager = GCKCastContext.sharedInstance().sessionManager
-        if let current = manager.currentSession, current.device.deviceID == receiverID {
-            load(in: current)
-            return
+        if let current = manager.currentSession {
+            if current.device.deviceID == receiverID {
+                onState?("Connected to " + (device.friendlyName ?? "your TV"))
+                return
+            }
+            throw MirrorError.castFailed("Another Chromecast session is active. Disconnect it before mirroring.")
         }
         guard manager.startSession(with: device) else {
-            throw MirrorError.castFailed("Google Cast SDK could not start a session.")
+            throw MirrorError.castFailed("Could not open a Cast session for " + (device.friendlyName ?? "this TV"))
         }
-        onState?("Connecting to " + (device.friendlyName ?? "Chromecast"))
+        onState?("Opening Cast session with " + (device.friendlyName ?? "your TV"))
+    }
+
+    /// Only send the LOAD once the first HLS segment exists on the local server.
+    /// If the Cast SDK is suspended by iOS, didResume will load on return.
+    func publish(mediaURL: URL) {
+        self.mediaURL = mediaURL
+        let manager = GCKCastContext.sharedInstance().sessionManager
+        if let current = manager.currentSession,
+           current.device.deviceID == activeReceiverID {
+            load(in: current)
+        } else {
+            onState?("Screen stream is ready; finishing connection to Chromecast")
+        }
+    }
+
+    /// Compatibility entry point for code that already has an encoded stream.
+    func cast(receiverID: String, mediaURL: URL) throws {
+        try prepare(receiverID: receiverID)
+        publish(mediaURL: mediaURL)
     }
 
     func sessionManager(_ sessionManager: GCKSessionManager, didStart session: GCKSession) {
