@@ -12,6 +12,9 @@ final class TVSessionModel: ObservableObject {
     @Published var status = "Choose a Google TV to connect"
     @Published var lastError: String?
     @Published var pairingCode = ""
+    @Published private(set) var tvKeyboardAvailable = false
+    @Published private(set) var tvKeyboardLabel = ""
+    @Published private(set) var keyboardRequestID = UUID()
     @Published var discoveryDetails = "Not scanned yet"
     @Published private(set) var logs: [String] = []
 
@@ -27,9 +30,22 @@ final class TVSessionModel: ObservableObject {
             selected = tv
             status = "Ready to reconnect to " + tv.name
         }
+        client.onKeyboardStatus = { [weak self] active, label in
+            guard let self else { return }
+            self.tvKeyboardAvailable = active
+            self.tvKeyboardLabel = label
+        }
+        client.onKeyboardRequested = { [weak self] label in
+            guard let self else { return }
+            self.tvKeyboardAvailable = true
+            self.tvKeyboardLabel = label
+            self.keyboardRequestID = UUID()
+            self.record("TV opened its text input field")
+        }
         client.onConnectionLost = { [weak self] reason in
             guard let self, self.isConnected else { return }
             self.isConnected = false
+            self.tvKeyboardAvailable = false
             self.status = "Connection lost"
             self.lastError = reason
             self.record("Remote disconnected: " + reason)
@@ -108,6 +124,7 @@ final class TVSessionModel: ObservableObject {
         let id = requestID
         selected = device
         isConnected = false
+        tvKeyboardAvailable = false
         isPairing = false
         isConnecting = true
         pairingCode = ""
@@ -229,7 +246,7 @@ final class TVSessionModel: ObservableObject {
                 record("Sent keyboard input (" + String(text.count) + " characters)")
             } catch {
                 lastError = error.localizedDescription
-                record("Keyboard command failed: " + error.localizedDescription)
+                record("TV keyboard input was not accepted: " + error.localizedDescription)
                 CastDeckDiagnostics.shared.report("keyboard")
             }
         }
@@ -255,6 +272,7 @@ final class TVSessionModel: ObservableObject {
         connectionTask = nil
         client.disconnect()
         isConnected = false
+        tvKeyboardAvailable = false
         isPairing = false
         isConnecting = false
         pairingCode = ""
