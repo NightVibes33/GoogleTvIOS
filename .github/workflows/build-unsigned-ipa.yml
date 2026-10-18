@@ -30,6 +30,10 @@ jobs:
         run: xcodegen generate --spec project.yml
       - name: Resolve Swift packages
         run: xcodebuild -resolvePackageDependencies -project CastDeck.xcodeproj -scheme CastDeck
+      - name: Verify private diagnostics gateway
+        run: |
+          cd telemetry-server
+          npm test
       - name: Build unsigned device app
         run: xcodebuild -project CastDeck.xcodeproj -scheme CastDeck -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= build
       - name: Package unsigned IPA
