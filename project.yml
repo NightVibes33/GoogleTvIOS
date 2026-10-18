@@ -40,6 +40,12 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: CastDeck
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSLocalNetworkUsageDescription: CastDeck discovers Google TV and Chromecast devices on your local Wi-Fi network to connect to your television.
+        NSBonjourServices:
+          - _androidtvremote2._tcp
+          - _googlecast._tcp
         UILaunchScreen:
           UIColorName: Background
         UISupportedInterfaceOrientations:

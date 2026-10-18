@@ -24,6 +24,14 @@ final class DiscoveryService: NSObject, NetServiceBrowserDelegate, NetServiceDel
 
     func scan(timeout: TimeInterval = 9,
               update: @escaping ([TVDevice], String) -> Void) async -> DiscoveryReport {
+        let declared = Set(Bundle.main.object(forInfoDictionaryKey: "NSBonjourServices") as? [String] ?? [])
+        let required: Set<String> = ["_androidtvremote2._tcp", "_googlecast._tcp"]
+        let reason = Bundle.main.object(forInfoDictionaryKey: "NSLocalNetworkUsageDescription") as? String
+        if !required.isSubset(of: declared) || reason?.isEmpty != false {
+            let message = "Installed IPA is missing NSBonjourServices or NSLocalNetworkUsageDescription. Reinstall a build with the local-network declarations included."
+            update([], message)
+            return DiscoveryReport(devices: [], servicesFound: 0, resolved: 0, errors: [message])
+        }
         finish()
         found = [:]
         seen = []
@@ -166,7 +174,10 @@ final class DiscoveryService: NSObject, NetServiceBrowserDelegate, NetServiceDel
     }
 
     func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
-        let error = "Bonjour browser failed: " + errorDict.description
+        let code = errorDict["NSNetServicesErrorCode"]?.intValue ?? 0
+        let error = code == -72008
+            ? "Bonjour configuration missing (-72008). Reinstall the corrected IPA with local-network declarations."
+            : "Bonjour browser failed (\(code)): " + errorDict.description
         errors.append(error)
         notify(error)
     }

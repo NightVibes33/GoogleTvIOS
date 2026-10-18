@@ -35,6 +35,26 @@ jobs:
           ditto "$APP_PATH" "Payload/$(basename "$APP_PATH")"
           /usr/bin/zip -qry CastDeck-iOS-27-unsigned.ipa Payload
           unzip -l CastDeck-iOS-27-unsigned.ipa
+      - name: Assert IPA contains iOS local network permissions
+        run: |
+          python3 - <<'PY'
+          import plistlib
+          import zipfile
+          archive = "CastDeck-iOS-27-unsigned.ipa"
+          with zipfile.ZipFile(archive) as ipa:
+              paths = [name for name in ipa.namelist() if name.startswith("Payload/") and name.endswith(".app/Info.plist")]
+              if len(paths) != 1:
+                  raise SystemExit(f"Expected one app Info.plist, found {paths}")
+              info = plistlib.loads(ipa.read(paths[0]))
+          expected = {"_androidtvremote2._tcp", "_googlecast._tcp"}
+          services = set(info.get("NSBonjourServices", []))
+          description = info.get("NSLocalNetworkUsageDescription", "")
+          assert expected.issubset(services), f"Missing Bonjour service types: {expected - services}"
+          assert isinstance(description, str) and description.strip(), "Missing NSLocalNetworkUsageDescription"
+          assert info.get("CFBundleShortVersionString") == "1.2.0", f"Unexpected version: {info.get('CFBundleShortVersionString')}"
+          assert str(info.get("CFBundleVersion")) == "3", f"Unexpected build number: {info.get('CFBundleVersion')}"
+          print("Packaged app Info.plist verified: Bonjour services, Local Network usage, version and build number")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: CastDeck-iOS-27-unsigned-IPA

@@ -1,6 +1,6 @@
 # CastDeck — Chromecast with Google TV remote for iOS
 
-CastDeck is an independent, native SwiftUI remote app. The first tab is the remote; the second tab has settings, logging, and compatibility information.
+CastDeck is an independent, native SwiftUI remote app. The iPhone screen is the remote, with a TV chooser and a separate settings sheet. Device discovery uses Bonjour and logs actionable errors.
 
 ## Supported receivers
 
@@ -39,6 +39,13 @@ Haptic feedback, automatic discovery, system/light/dark appearance, reconnect/di
 - Device verification is needed on an actual Google TV; simulator compilation and a UI screenshot do not prove pairing or control.
 - Local Network permission is required. No microphone permission is requested because the app does not record microphone audio.
 - App icon needs a branded 1024x1024 image before App Store distribution.
+
+
+## Bonjour discovery and -72008
+
+The iOS `NSNetServicesMissingRequiredConfigurationError` (`-72008`) means the **installed app** is missing required local-network configuration, irrespective of what's present in a source `Info.plist`. This repository builds with **XcodeGen**, so both `NSLocalNetworkUsageDescription` and `NSBonjourServices` must be defined under `targets.CastDeck.info.properties` in `project.yml`. The CI workflow now opens the **packaged IPA** and asserts both keys are present before publishing an artifact.
+
+When replacing a previously installed build, use the new corrected unsigned IPA (signed as required by your installer). In iPhone Settings, permit Local Network for CastDeck. If the service still isn't found, use the TV's IP and check that the router does not isolate Wi-Fi clients.
 
 ## License
 

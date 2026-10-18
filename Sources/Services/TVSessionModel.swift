@@ -65,15 +65,15 @@ final class TVSessionModel: ObservableObject {
             devices = result.devices
             isScanning = false
             discoveryDetails = "Services advertised: \(result.servicesFound), resolved addresses: \(result.resolved)"
-            if result.devices.contains(where: { !$0.host.isEmpty }) {
+            if let error = result.errors.first {
+                lastError = error
+                status = "Discovery failed — see connection details"
+            } else if result.devices.contains(where: { !$0.host.isEmpty }) {
                 status = "Found \(result.devices.count) device(s) — choose a TV"
             } else if result.servicesFound > 0 {
                 status = "TV advertised, but its address could not be resolved"
             } else {
                 status = "No Bonjour services found — check Wi-Fi, permissions, or enter TV IP"
-            }
-            if let error = result.errors.first {
-                lastError = error
             }
             record("Discovery finished: " + discoveryDetails)
         }
