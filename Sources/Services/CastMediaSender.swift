@@ -3,7 +3,7 @@ import GoogleCast
 
 /// Uses Google's official Cast Sender SDK, not Android TV's remote control port.
 @MainActor
-final class CastMediaSender: NSObject, GCKSessionManagerListener {
+final class CastMediaSender: NSObject, GCKSessionManagerListener, GCKRequestDelegate, GCKRemoteMediaClientListener {
     struct Receiver: Identifiable, Hashable {
         let id: String
         let name: String
@@ -11,6 +11,10 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
 
     var onState: ((String) -> Void)?
     var onFailure: ((String) -> Void)?
+    var onPlaybackConfirmed: (() -> Void)?
+    private var pendingRequest: GCKRequest?
+    private var mediaClient: GCKRemoteMediaClient?
+    private var retryTask: Task<Void, Never>?
     private var mediaURL: URL?
     private var activeReceiverID: String?
     private var loading = false
@@ -89,12 +93,29 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
     /// If the Cast SDK is suspended by iOS, didResume will load on return.
     func publish(mediaURL: URL) {
         self.mediaURL = mediaURL
-        let manager = GCKCastContext.sharedInstance().sessionManager
-        if let current = manager.currentSession,
-           current.device.deviceID == activeReceiverID {
-            load(in: current)
-        } else {
-            onState?("Screen stream is ready; finishing connection to Chromecast")
+        onState?("HLS playlist available; preparing receiver playback")
+        scheduleLoad()
+    }
+
+    private func scheduleLoad() {
+        retryTask?.cancel()
+        retryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for attempt in 0..<36 {
+                if Task.isCancelled || loading || mediaURL == nil { return }
+                if let current = GCKCastContext.sharedInstance().sessionManager.currentSession,
+                   current.device.deviceID == activeReceiverID, current.remoteMediaClient != nil {
+                    load(in: current)
+                    return
+                }
+                if attempt == 12 {
+                    onState?("Waiting for Chromecast media receiver to become ready")
+                }
+                try? await Task.sleep(nanoseconds: 350_000_000)
+            }
+            if !Task.isCancelled && !loading {
+                onFailure?("Chromecast media receiver never became ready after 13 seconds.")
+            }
         }
     }
 
@@ -105,11 +126,13 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
     }
 
     func sessionManager(_ sessionManager: GCKSessionManager, didStart session: GCKSession) {
-        load(in: session)
+        onState?("Cast session connected")
+        if mediaURL != nil { scheduleLoad() }
     }
 
     func sessionManager(_ sessionManager: GCKSessionManager, didResume session: GCKSession) {
-        load(in: session)
+        onState?("Cast session resumed")
+        if mediaURL != nil { scheduleLoad() }
     }
 
     func sessionManager(_ sessionManager: GCKSessionManager, didFailToStart session: GCKSession,
@@ -125,7 +148,15 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
 
     private func load(in session: GCKSession) {
         guard !loading, let mediaURL else { return }
+        guard let client = session.remoteMediaClient else {
+            onState?("Cast session ready; waiting for media client")
+            scheduleLoad()
+            return
+        }
         loading = true
+        if let old = mediaClient { old.remove(self) }
+        mediaClient = client
+        client.add(self)
         let metadata = GCKMediaMetadata()
         metadata.setString("CastDeck iPhone Screen", forKey: kGCKMetadataKeyTitle)
         let builder = GCKMediaInformationBuilder(contentURL: mediaURL)
@@ -134,16 +165,39 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener {
         builder.metadata = metadata
         let request = GCKMediaLoadRequestDataBuilder()
         request.mediaInformation = builder.build()
-        guard let remoteClient = session.remoteMediaClient else {
-            loading = false
-            onFailure?("Connected receiver has no Google Cast media client.")
-            return
-        }
-        remoteClient.loadMedia(with: request.build())
-        onState?("Sent live HLS load request to Chromecast")
+        let task = client.loadMedia(with: request.build())
+        pendingRequest = task
+        task.delegate = self
+        onState?("Cast media LOAD sent: " + mediaURL.absoluteString)
     }
 
+    func requestDidComplete(_ request: GCKRequest) {
+        onState?("Cast receiver accepted the media LOAD request; waiting for playback")
+    }
+
+    func request(_ request: GCKRequest, didFailWithError error: GCKError) {
+        onFailure?("Cast media LOAD rejected: " + error.localizedDescription)
+    }
+
+    func remoteMediaClient(_ client: GCKRemoteMediaClient, didUpdate mediaStatus: GCKMediaStatus?) {
+        guard let status = mediaStatus else {
+            onState?("Receiver has not reported a media player yet")
+            return
+        }
+        let state = status.playerState
+        onState?("Receiver player state: " + String(describing: state))
+        if state == .playing {
+            onPlaybackConfirmed?()
+        }
+    }
+
+
     func stop() {
+        retryTask?.cancel()
+        retryTask = nil
+        if let client = mediaClient { client.remove(self) }
+        mediaClient = nil
+        pendingRequest = nil
         let manager = GCKCastContext.sharedInstance().sessionManager
         manager.currentSession?.remoteMediaClient?.stop()
         manager.endSession()

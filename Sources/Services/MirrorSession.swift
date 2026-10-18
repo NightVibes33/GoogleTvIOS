@@ -25,6 +25,8 @@ final class MirrorSession: ObservableObject {
     private var generation = UUID()
     private var encoderFailure: String?
     private var castFailure: String?
+    private var receiverReportedPlaying = false
+    private var videoSegmentRequested = false
     private var refreshTask: Task<Void, Never>?
 
     init() {
@@ -34,11 +36,33 @@ final class MirrorSession: ObservableObject {
         }
         cast.onFailure = { [weak self] value in
             Task { @MainActor in
-                self?.castFailure = value
-                self?.error = value
-                self?.record("Receiver error: " + value)
+                guard let self else { return }
+                self.castFailure = value
+                self.error = value
+                self.record("Chromecast playback error: " + value)
+                if self.isMirroring || self.isStarting {
+                    self.stop()
+                    self.error = value
+                    self.record("Screen mirroring could not play: " + value)
+                }
             }
         }
+        cast.onPlaybackConfirmed = { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.receiverReportedPlaying = true
+                self.record("Chromecast reported PLAYING; verifying video segment requests")
+                self.confirmPlaybackIfReady()
+            }
+        }
+    }
+
+    private func confirmPlaybackIfReady() {
+        guard isStarting, receiverReportedPlaying, videoSegmentRequested else { return }
+        isStarting = false
+        isMirroring = true
+        error = nil
+        record("Confirmed: Chromecast is playing and has fetched a video segment")
     }
 
     func record(_ message: String) {
@@ -86,11 +110,26 @@ final class MirrorSession: ObservableObject {
         error = nil
         encoderFailure = nil
         castFailure = nil
+        receiverReportedPlaying = false
+        videoSegmentRequested = false
         store.reset()
         record("Starting local HLS server; app audio capture enabled")
         Task {
             do {
                 let http = CastHTTPServer(store: store)
+                http.onRequest = { [weak self] path, success in
+                    Task { @MainActor in
+                        guard let self, self.generation == current, success else { return }
+                        if path == "/init.mp4" { self.record("Chromecast requested MP4 initialization data") }
+                        if path.hasPrefix("/segment-") {
+                            if !self.videoSegmentRequested {
+                                self.record("Chromecast fetched video segment: " + path)
+                            }
+                            self.videoSegmentRequested = true
+                            self.confirmPlaybackIfReady()
+                        }
+                    }
+                }
                 self.http = http
                 let urlString = try await http.start()
                 guard generation == current, let url = URL(string: urlString) else { return }
@@ -129,7 +168,7 @@ final class MirrorSession: ObservableObject {
                 record("Choose Entire Screen in the iOS capture picker")
                 // Do not launch receiver until there's actual encoded audio/video
                 // to fetch, avoiding an empty-playlist failure on the Chromecast.
-                for _ in 0..<35 {
+                for _ in 0..<55 {
                     guard generation == current else { return }
                     if let encoderFailure {
                         throw MirrorError.writerFailed(encoderFailure)
@@ -137,23 +176,30 @@ final class MirrorSession: ObservableObject {
                     if let castFailure {
                         throw MirrorError.castFailed(castFailure)
                     }
-                    if store.segmentCount > 0 { break }
+                    if store.readySegments >= 3 { break }
                     if engine.cancelled {
                         throw MirrorError.writerFailed("Screen sharing ended before video was ready")
                     }
                     try await Task.sleep(nanoseconds: 500_000_000)
                 }
                 guard generation == current else { return }
-                guard store.segmentCount > 0 else {
-                    throw MirrorError.writerFailed("No encoded HLS media arrived. Check screen sharing permission and screen recording restrictions.")
+                if let castFailure { throw MirrorError.castFailed(castFailure) }
+                guard store.readySegments >= 3 else {
+                    throw MirrorError.writerFailed("HLS stream did not produce three ready fragments. Check capture and encoding logs.")
                 }
                 cast.publish(mediaURL: url)
                 #else
                 throw MirrorError.writerFailed("ScreenCaptureKit is unavailable in the iOS simulator. Install the IPA on a physical iPhone.")
                 #endif
-                isStarting = false
-                isMirroring = true
-                record("Live HLS stream prepared; Cast playback request sent or queued for session resume")
+                record("Live HLS master manifest published with three ready fragments; waiting for Chromecast PLAYING confirmation")
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 25_000_000_000)
+                    guard let self, self.generation == current, self.isStarting, !self.isMirroring else { return }
+                    let reason = "TV opened Cast but did not both fetch video and report PLAYING. Check the HLS, init.mp4 and LOAD events in Files logs."
+                    self.stop()
+                    self.error = reason
+                    self.record("Mirror timed out: " + reason)
+                }
             } catch {
                 guard generation == current else { return }
                 self.error = error.localizedDescription

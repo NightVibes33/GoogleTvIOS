@@ -139,3 +139,29 @@ video/audio. Check the file logs under Files → On My iPhone → CastDeck → L
 ## License
 
 MIT. Independent application; not affiliated with Google.
+
+## Chromecast media startup verification (1.4.2)
+
+After capture, the Cast Default Media Receiver may display its blue Cast
+logo despite receiving a valid `LOAD` command. Successful transfer of one
+`live.m3u8` playlist does **not** prove a decodable stream.
+
+- Serve `master.m3u8` first, with codec, bitrate, frame-rate and resolution,
+  like the [Home Assistant Chromecast HLS integration](https://github.com/home-assistant/core/blob/dev/homeassistant/components/stream/hls.py).
+- Require the fMP4 `init.mp4` map and at least three ready fragments before
+  sending `LOAD`. Missing fMP4 initialization causes a documented black-screen
+  failure in [Shirox tests](https://github.com/xibrox/Shirox/blob/main/ShiroxTests/CastManifestRewriterTests.swift).
+- Report segment durations from `AVAssetSegmentReport` instead of hardcoding
+  two seconds. Advertise a compatible target duration; ensure the HEVC profile
+  is for 4K, not 1080p.
+- Support Chromecast GET/HEAD, HTTP byte ranges, response MIME types and CORS.
+  Retain file diagnostics for all manifest, init and video segment requests.
+- Observe the official Cast Sender SDK's media LOAD request completion/error
+  and remote player state. Display mirroring success only when the receiver
+  reports PLAYING **and** has requested a media fragment; otherwise report a
+  timeout and leave diagnostics visible.
+
+These changes fix several manifest, state and HTTP protocol defects but **do
+not constitute a completed physical 4K + audio validation**. Start with
+1080p when first testing and compare the new HLS/receiver events in
+Files → On My iPhone → CastDeck → Logs.

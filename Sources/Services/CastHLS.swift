@@ -10,16 +10,29 @@ import Darwin
 final class LiveHLSStore: NSObject, AVAssetWriterDelegate {
     private let lock = NSLock()
     private var initialization: Data?
-    private var segments: [(number: Int, data: Data)] = []
+    private var segments: [(number: Int, data: Data, duration: Double)] = []
     private var index = 0
     private var isFinished = false
-    private let maxSegments = 8
+    private let maxSegments = 12
+    private var is4K = false
+    private var lastPlaylistDebugCount = -1
+
+    func setQuality(is4K: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        self.is4K = is4K
+    }
+
+    var readySegments: Int {
+        lock.lock(); defer { lock.unlock() }
+        return initialization == nil ? 0 : segments.count
+    }
 
     func reset() {
         lock.lock(); defer { lock.unlock() }
         initialization = nil
         segments = []
         index = 0
+        lastPlaylistDebugCount = -1
         isFinished = false
     }
 
@@ -35,27 +48,61 @@ final class LiveHLSStore: NSObject, AVAssetWriterDelegate {
         switch segmentType {
         case .initialization:
             initialization = data
+            CastDeckLog.shared.write("hls", "Initialization fragment: \(data.count) bytes")
         case .separable:
-            segments.append((index, data))
+            let reported = segmentReport?.trackReports
+                .first(where: { $0.mediaType == .video })?.duration.seconds ?? 2.0
+            let duration = reported.isFinite && reported > 0 ? reported : 2.0
+            segments.append((index, data, duration))
+            CastDeckLog.shared.write("hls", "Media fragment #\(index): \(data.count) bytes, duration \(String(format: "%.3f", duration)) s")
             index += 1
             if segments.count > maxSegments { segments.removeFirst(segments.count - maxSegments) }
         @unknown default: break
         }
     }
 
+    /// Chromecast's Web Receiver uses a master playlist to identify video/audio
+    /// codec support before requesting fragments.
     func resource(_ path: String) -> (mime: String, body: Data)? {
         lock.lock(); defer { lock.unlock() }
-        if path == "/live.m3u8" {
-            var text = "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:3\n"
-            text += "#EXT-X-MEDIA-SEQUENCE:\(segments.first?.number ?? index)\n"
-            if initialization != nil { text += "#EXT-X-MAP:URI=\"init.mp4\"\n" }
-            for item in segments {
-                text += "#EXTINF:2.0,\nsegment-\(item.number).m4s\n"
-            }
-            if isFinished { text += "#EXT-X-ENDLIST\n" }
-            return ("application/vnd.apple.mpegurl", Data(text.utf8))
+        if path == "/master.m3u8" {
+            let codecs = is4K ? "hvc1.1.6.L153.B0,mp4a.40.2" : "avc1.640028,mp4a.40.2"
+            let bitrate = is4K ? 20_000_000 : 7_000_000
+            let dimensions = is4K ? "3840x2160" : "1920x1080"
+            let manifest = """
+            #EXTM3U
+            #EXT-X-VERSION:7
+            #EXT-X-STREAM-INF:BANDWIDTH=\(bitrate),AVERAGE-BANDWIDTH=\(bitrate),RESOLUTION=\(dimensions),FRAME-RATE=30.000,CODECS="\(codecs)"
+            live.m3u8
+
+            """
+            return ("application/vnd.apple.mpegurl", Data(manifest.utf8))
         }
-        if path == "/init.mp4", let initialization { return ("video/mp4", initialization) }
+        if path == "/live.m3u8" {
+            // Never announce media fragments until the AVAssetWriter initialization
+            // segment is available; otherwise the Cast receiver fails parsing HLS.
+            let playable = initialization == nil ? [] : segments
+            let firstNumber = playable.first?.number ?? index
+            var playlist = "#EXTM3U\n#EXT-X-VERSION:7\n"
+            let targetDuration = max(3, Int(ceil(playable.map { $0.duration }.max() ?? 2.0)))
+            playlist += "#EXT-X-TARGETDURATION:\(targetDuration)\n"
+            playlist += "#EXT-X-MEDIA-SEQUENCE:\(firstNumber)\n"
+            if initialization != nil {
+                playlist += "#EXT-X-MAP:URI=\"init.mp4\"\n"
+                for item in playable {
+                    playlist += "#EXTINF:\(String(format: "%.3f", item.duration)),\nsegment-\(item.number).m4s\n"
+                }
+            }
+            if isFinished { playlist += "#EXT-X-ENDLIST\n" }
+            if lastPlaylistDebugCount != playable.count {
+                lastPlaylistDebugCount = playable.count
+                CastDeckLog.shared.write("hls", "Playlist #\(firstNumber): init=\(initialization?.count ?? 0) bytes, \(playable.count) fragments, quality=\(is4K ? "4K" : "1080p")")
+            }
+            return ("application/vnd.apple.mpegurl", Data(playlist.utf8))
+        }
+        if path == "/init.mp4", let initialization {
+            return ("video/mp4", initialization)
+        }
         if path.hasPrefix("/segment-"), path.hasSuffix(".m4s"),
            let number = Int(path.dropFirst("/segment-".count).dropLast(".m4s".count)),
            let item = segments.first(where: { $0.number == number }) {
@@ -74,6 +121,7 @@ final class LiveHLSStore: NSObject, AVAssetWriterDelegate {
 final class CastHTTPServer {
     private let queue = DispatchQueue(label: "castdeck.hls.http", qos: .utility)
     private let store: LiveHLSStore
+    var onRequest: ((String, Bool) -> Void)?
     private var listener: NWListener?
     private var clients: [NWConnection] = []
     private(set) var port: UInt16 = 0
@@ -97,7 +145,7 @@ final class CastHTTPServer {
                         listener.cancel()
                         return
                     }
-                    let url = "http://\(address):\(self.port)/live.m3u8"
+                    let url = "http://\(address):\(self.port)/master.m3u8"
                     CastDeckLog.shared.write("mirror", "LAN HLS server bound to " + url)
                     continuation.resume(returning: url)
                 case .failed(let error):
@@ -136,24 +184,51 @@ final class CastHTTPServer {
             guard let self else { connection.cancel(); return }
             guard error == nil, let data,
                   let request = String(data: data, encoding: .utf8),
-                  let line = request.components(separatedBy: "\r\n").first,
-                  line.hasPrefix("GET "),
-                  let urlPart = line.split(separator: " ").dropFirst().first else {
+                  let line = request.components(separatedBy: "\r\n").first else {
                 connection.cancel()
                 return
             }
-            let path = String(urlPart.split(separator: "?").first ?? "")
-            let response = self.store.resource(path)
-            if path == "/live.m3u8" || response == nil {
-                CastDeckLog.shared.write("cast-http", "GET " + path + " → " + (response == nil ? "404" : "200"))
+            let parts = line.split(separator: " ")
+            guard parts.count >= 2 else { connection.cancel(); return }
+            let method = String(parts[0])
+            guard ["GET", "HEAD", "OPTIONS"].contains(method) else {
+                connection.cancel()
+                return
             }
-            let body = response?.body ?? Data("Not found".utf8)
-            let mime = response?.mime ?? "text/plain"
-            let code = response == nil ? "404 Not Found" : "200 OK"
-            let head = "HTTP/1.1 \(code)\r\nContent-Type: \(mime)\r\nContent-Length: \(body.count)\r\nCache-Control: no-store, no-cache, must-revalidate\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
-            var packet = Data(head.utf8)
-            packet.append(body)
-            connection.send(content: packet, completion: .contentProcessed { _ in connection.cancel() })
+            let path = String(parts[1].split(separator: "?").first ?? "")
+            let resource = method == "OPTIONS" ? nil : self.store.resource(path)
+            let rangeHeader = request.components(separatedBy: "\r\n")
+                .first(where: { $0.lowercased().hasPrefix("range:") })
+            var body = method == "OPTIONS" ? Data() : resource?.body ?? Data("Not found".utf8)
+            let originalLength = body.count
+            var status = method == "OPTIONS" ? "204 No Content" :
+                         resource == nil ? "404 Not Found" : "200 OK"
+            var rangeField = ""
+            if let rangeHeader, resource != nil, rangeHeader.contains("bytes="),
+               let numberText = rangeHeader.split(separator: "=").last,
+               let startText = numberText.split(separator: "-").first,
+               let requestedStart = Int(startText), requestedStart >= 0,
+               requestedStart < originalLength {
+                let endText = numberText.split(separator: "-").dropFirst().first
+                let requestedEnd = endText.flatMap { Int($0) } ?? originalLength - 1
+                let upper = min(originalLength - 1, max(requestedStart, requestedEnd))
+                body = body.subdata(in: requestedStart..<(upper + 1))
+                status = "206 Partial Content"
+                rangeField = "Content-Range: bytes \(requestedStart)-\(upper)/\(originalLength)\r\n"
+            }
+            let mime = resource?.mime ?? "text/plain"
+            let header = "HTTP/1.1 \(status)\r\nContent-Type: \(mime)\r\nContent-Length: \(body.count)\r\n"
+                       + rangeField
+                       + "Cache-Control: no-store, no-cache, must-revalidate\r\n"
+                       + "Access-Control-Allow-Origin: *\r\n"
+                       + "Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n"
+                       + "Access-Control-Allow-Headers: Content-Type, Range, Accept-Encoding\r\n"
+                       + "Accept-Ranges: bytes\r\nConnection: close\r\n\r\n"
+            var response = Data(header.utf8)
+            if method == "GET" { response.append(body) }
+            CastDeckLog.shared.write("cast-http", "\(method) \(path) -> \(status) (\(body.count) bytes)")
+            if method == "GET" { self.onRequest?(path, resource != nil) }
+            connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
             self.clients.removeAll { $0 === connection }
         }
     }
@@ -227,6 +302,7 @@ final class CastHLSEncoder {
     init(store: LiveHLSStore, quality4K: Bool) {
         self.store = store
         self.quality4K = quality4K
+        store.setQuality(is4K: quality4K)
     }
 
     func process(_ sample: CMSampleBuffer, audio isAudio: Bool) {
@@ -246,6 +322,7 @@ final class CastHLSEncoder {
                 if quality4K && !didFallback {
                     didFallback = true
                     quality4K = false
+                    store.setQuality(is4K: false)
                     onStatus?("4K could not start (\(detail)). Retrying automatically at 1080p.")
                     writer.cancelWriting()
                     self.writer = nil
@@ -306,6 +383,7 @@ final class CastHLSEncoder {
     private func configure(firstTimestamp: CMTime) throws {
         let size = outputSize
         let writer = AVAssetWriter(contentType: .mpeg4Movie)
+        writer.shouldOptimizeForNetworkUse = true
         writer.outputFileTypeProfile = .mpeg4AppleHLS
         writer.preferredOutputSegmentInterval = CMTime(seconds: 2, preferredTimescale: 1)
         writer.initialSegmentStartTime = firstTimestamp
