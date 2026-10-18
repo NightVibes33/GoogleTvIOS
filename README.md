@@ -165,3 +165,11 @@ These changes fix several manifest, state and HTTP protocol defects but **do
 not constitute a completed physical 4K + audio validation**. Start with
 1080p when first testing and compare the new HLS/receiver events in
 Files → On My iPhone → CastDeck → Logs.
+
+## v1.5.0 — Responsive mirroring and automatic TV-fill landscape
+
+ScreenCaptureKit iOS 27 metadata includes a per-frame video orientation. The encoder now honors `SCStreamFrameInfo.videoOrientation` and computes its output geometry for every screen sample. Rotating the iPhone to landscape automatically fills the 16:9 TV with a center-cropped image; portrait maintains aspect-fit with side bars. Rotation requires no new pairing, Cast session, or HLS stream. Some landscape source ratios are wider than 16:9, so their edges are cropped slightly to fill the TV instead of stretching.
+
+Live streaming targets 30fps, 1-second AVFoundation HLS fragments, a 2-fragment initial buffer, and 3.5 Mbps H.264 at 1080p; the 4K HEVC experimental profile uses 12 Mbps with a receiver-triggered 1080p fallback on failed playback. The app avoids processing redundant frames, logs orientation changes, keeps source audio timestamps, and keeps Files logs. This does not create native 4K detail beyond the iPhone screen and cannot guarantee near-zero-latency Cast playback.
+
+**Hardware test needed:** rotate during an active full-screen video on an iPhone and confirm that receiver playback is landscape and properly cropped. If output remains portrait, the next log should show whether ScreenCaptureKit supplies orientation metadata and whether source frames actually change dimensions.

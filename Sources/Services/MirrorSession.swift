@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AVFoundation
+import ImageIO
 
 #if !targetEnvironment(simulator)
 import ScreenCaptureKit
@@ -27,6 +28,10 @@ final class MirrorSession: ObservableObject {
     private var castFailure: String?
     private var receiverReportedPlaying = false
     private var videoSegmentRequested = false
+    private var activeEncoder: CastHLSEncoder?
+    private var currentMediaURL: URL?
+    private var fallbackInProgress = false
+    private var isRetryingCompatibility = false
     private var refreshTask: Task<Void, Never>?
 
     init() {
@@ -47,6 +52,9 @@ final class MirrorSession: ObservableObject {
                 }
             }
         }
+        cast.onPlaybackIdle = { [weak self] detail in
+            Task { @MainActor in self?.handleIdlePlayback(detail) }
+        }
         cast.onPlaybackConfirmed = { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -54,6 +62,58 @@ final class MirrorSession: ObservableObject {
                 self.record("Chromecast reported PLAYING; verifying video segment requests")
                 self.confirmPlaybackIfReady()
             }
+        }
+    }
+
+    private func handleIdlePlayback(_ detail: String) {
+        guard isStarting || isMirroring else { return }
+        record(detail)
+        guard quality4K, !fallbackInProgress, let encoder = activeEncoder,
+              let originalURL = currentMediaURL else {
+            // If a compatibility attempt has already been sent, this idle
+            // transition indicates both codecs failed. Do not display success.
+            if !fallbackInProgress || isRetryingCompatibility {
+                let reason = "Chromecast could not decode or play the HLS stream. " + detail
+                stop()
+                error = reason
+                record("Playback failed: " + reason)
+            }
+            return
+        }
+        fallbackInProgress = true
+        receiverReportedPlaying = false
+        videoSegmentRequested = false
+        record("4K playback failed. Retrying automatically at 1080p H.264.")
+        encoder.retryAt1080p()
+        quality4K = false
+        let attempt = generation
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for _ in 0..<65 {
+                guard self.generation == attempt, !Task.isCancelled else { return }
+                if self.store.readySegments >= 2 { break }
+                if let failure = self.encoderFailure {
+                    self.stop()
+                    self.error = failure
+                    self.record("1080p encoder failed: " + failure)
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 400_000_000)
+            }
+            guard self.generation == attempt else { return }
+            guard self.store.readySegments >= 2 else {
+                let reason = "1080p retry did not produce HLS media."
+                self.stop()
+                self.error = reason
+                self.record(reason)
+                return
+            }
+            // New query parameter avoids stale Chromecast manifest caching.
+            var components = URLComponents(url: originalURL, resolvingAgainstBaseURL: false)
+            components?.queryItems = [URLQueryItem(name: "mode", value: "compatibility1080")]
+            self.isRetryingCompatibility = true
+            self.cast.reloadCompatibilityStream(mediaURL: components?.url ?? originalURL)
+            self.record("1080p H.264 stream is ready; Chromecast retry LOAD sent")
         }
     }
 
@@ -112,6 +172,10 @@ final class MirrorSession: ObservableObject {
         castFailure = nil
         receiverReportedPlaying = false
         videoSegmentRequested = false
+        fallbackInProgress = false
+        isRetryingCompatibility = false
+        activeEncoder = nil
+        currentMediaURL = nil
         store.reset()
         record("Starting local HLS server; app audio capture enabled")
         Task {
@@ -134,6 +198,7 @@ final class MirrorSession: ObservableObject {
                 let urlString = try await http.start()
                 guard generation == current, let url = URL(string: urlString) else { return }
                 record("Local stream ready: " + urlString)
+                currentMediaURL = url
                 // The iOS system capture picker can background this app,
                 // suspending Google Cast discovery. Start the Cast session
                 // now while the receiver is still present in the SDK.
@@ -141,6 +206,7 @@ final class MirrorSession: ObservableObject {
                 guard generation == current else { return }
                 record("Chromecast connection requested before screen picker")
                 let encoder = CastHLSEncoder(store: store, quality4K: quality4K)
+                activeEncoder = encoder
                 encoder.onStatus = { [weak self] message in
                     Task { @MainActor in self?.record(message) }
                 }
@@ -168,7 +234,7 @@ final class MirrorSession: ObservableObject {
                 record("Choose Entire Screen in the iOS capture picker")
                 // Do not launch receiver until there's actual encoded audio/video
                 // to fetch, avoiding an empty-playlist failure on the Chromecast.
-                for _ in 0..<55 {
+                for _ in 0..<40 {
                     guard generation == current else { return }
                     if let encoderFailure {
                         throw MirrorError.writerFailed(encoderFailure)
@@ -176,7 +242,7 @@ final class MirrorSession: ObservableObject {
                     if let castFailure {
                         throw MirrorError.castFailed(castFailure)
                     }
-                    if store.readySegments >= 3 { break }
+                    if store.readySegments >= 2 { break }
                     if engine.cancelled {
                         throw MirrorError.writerFailed("Screen sharing ended before video was ready")
                     }
@@ -184,16 +250,16 @@ final class MirrorSession: ObservableObject {
                 }
                 guard generation == current else { return }
                 if let castFailure { throw MirrorError.castFailed(castFailure) }
-                guard store.readySegments >= 3 else {
-                    throw MirrorError.writerFailed("HLS stream did not produce three ready fragments. Check capture and encoding logs.")
+                guard store.readySegments >= 2 else {
+                    throw MirrorError.writerFailed("HLS stream did not produce two ready fragments. Check capture and encoding logs.")
                 }
                 cast.publish(mediaURL: url)
                 #else
                 throw MirrorError.writerFailed("ScreenCaptureKit is unavailable in the iOS simulator. Install the IPA on a physical iPhone.")
                 #endif
-                record("Live HLS master manifest published with three ready fragments; waiting for Chromecast PLAYING confirmation")
+                record("Live HLS ready with two short fragments; waiting for Chromecast PLAYING confirmation")
                 Task { @MainActor [weak self] in
-                    try? await Task.sleep(nanoseconds: 25_000_000_000)
+                    try? await Task.sleep(nanoseconds: 55_000_000_000)
                     guard let self, self.generation == current, self.isStarting, !self.isMirroring else { return }
                     let reason = "TV opened Cast but did not both fetch video and report PLAYING. Check the HLS, init.mp4 and LOAD events in Files logs."
                     self.stop()
@@ -218,6 +284,8 @@ final class MirrorSession: ObservableObject {
         }
         #endif
         capture = nil
+        activeEncoder = nil
+        currentMediaURL = nil
         cast.stop()
         http?.stop()
         http = nil
@@ -267,9 +335,10 @@ final class IOS27CaptureEngine: NSObject, SCContentSharingPickerObserver, SCStre
                     return
                 }
                 let config = SCStreamConfiguration()
-                let bounds = UIScreen.main.nativeBounds
-                config.width = Int(bounds.width)
-                config.height = Int(bounds.height)
+                // Do not lock capture to nativeBounds in portrait. Leave
+                // stream dimensions controlled by ScreenCaptureKit so frames
+                // can reflect live portrait/landscape changes.
+                config.pixelFormat = kCVPixelFormatType_32BGRA
                 config.capturesAudio = true
                 config.sampleRate = 48_000
                 config.channelCount = 2
@@ -324,7 +393,16 @@ private final class MirrorFrameOutput: NSObject, SCStreamOutput {
                 of type: SCStreamOutputType) {
         switch type {
         case .screen:
-            encoder.process(sampleBuffer, audio: false)
+            // iOS 27 includes CGImagePropertyOrientation metadata even when
+            // ScreenCaptureKit's pixel buffer has a constant physical shape.
+            let attachments = CMSampleBufferGetSampleAttachmentsArray(
+                sampleBuffer, createIfNecessary: false
+            ) as? [[SCStreamFrameInfo: Any]]
+            let number = attachments?.first?[.videoOrientation] as? NSNumber
+            let orientation = number.flatMap {
+                CGImagePropertyOrientation(rawValue: $0.uint32Value)
+            } ?? .up
+            encoder.process(sampleBuffer, audio: false, orientation: orientation)
         case .audio:
             encoder.process(sampleBuffer, audio: true)
         default: break

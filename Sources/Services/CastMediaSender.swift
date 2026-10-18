@@ -12,6 +12,10 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener, GCKRequestDele
     var onState: ((String) -> Void)?
     var onFailure: ((String) -> Void)?
     var onPlaybackConfirmed: (() -> Void)?
+    var onPlaybackIdle: ((String) -> Void)?
+    private var sawLoadingState = false
+    private var announcedIdle = false
+    private var lastPlayerState: GCKMediaPlayerState?
     private var pendingRequest: GCKRequest?
     private var mediaClient: GCKRemoteMediaClient?
     private var retryTask: Task<Void, Never>?
@@ -154,6 +158,9 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener, GCKRequestDele
             return
         }
         loading = true
+        sawLoadingState = false
+        announcedIdle = false
+        lastPlayerState = nil
         if let old = mediaClient { old.remove(self) }
         mediaClient = client
         client.add(self)
@@ -179,14 +186,44 @@ final class CastMediaSender: NSObject, GCKSessionManagerListener, GCKRequestDele
         onFailure?("Cast media LOAD rejected: " + error.localizedDescription)
     }
 
+    func reloadCompatibilityStream(mediaURL: URL) {
+        onState?("Reloading Chromecast with the 1080p H.264 compatibility stream")
+        loading = false
+        sawLoadingState = false
+        announcedIdle = false
+        self.mediaURL = mediaURL
+        if let current = GCKCastContext.sharedInstance().sessionManager.currentSession,
+           current.device.deviceID == activeReceiverID, current.remoteMediaClient != nil {
+            load(in: current)
+        } else {
+            scheduleLoad()
+        }
+    }
+
     func remoteMediaClient(_ client: GCKRemoteMediaClient, didUpdate mediaStatus: GCKMediaStatus?) {
         guard let status = mediaStatus else {
             onState?("Receiver has not reported a media player yet")
             return
         }
         let state = status.playerState
-        onState?("Receiver player state: " + String(describing: state))
-        if state == .playing {
+        let changed = lastPlayerState != state
+        lastPlayerState = state
+        if state == .loading || state == .buffering || state == .playing {
+            sawLoadingState = true
+        }
+        if state == .idle {
+            let reason = status.idleReason
+            let detail = "Chromecast returned to IDLE; idleReason=" + String(describing: reason)
+                        + " (raw=" + String(reason.rawValue) + ")"
+            if changed { onState?(detail) }
+            if loading && sawLoadingState && !announcedIdle {
+                announcedIdle = true
+                onPlaybackIdle?(detail)
+            }
+        } else {
+            if changed { onState?("Receiver player state: " + String(describing: state)) }
+        }
+        if state == .playing && changed {
             onPlaybackConfirmed?()
         }
     }

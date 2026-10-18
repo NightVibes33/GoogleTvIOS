@@ -99,14 +99,14 @@ struct MirrorPanel: View {
                 Section("Streaming quality") {
                     Picker("Output resolution", selection: $mirror.quality4K) {
                         Text("1080p").tag(false)
-                        Text("4K UHD").tag(true)
+                        Text("4K · Beta").tag(true)
                     }
                     .pickerStyle(.segmented)
                     .disabled(mirror.isStarting || mirror.isMirroring)
-                    Label("Screen and supported audio", systemImage: "speaker.wave.2.fill")
+                    Label("Rotate iPhone for full-screen video", systemImage: "arrow.triangle.2.circlepath")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    Text("1080p works with more TVs. 4K is experimental and may switch to 1080p if your iPhone can't start the higher-quality stream.")
+                    Text("Landscape fills your television automatically. Portrait keeps the full phone screen visible. 1080p is recommended for smoother mirroring; 4K is experimental.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
