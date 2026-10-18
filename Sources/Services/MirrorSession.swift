@@ -338,7 +338,6 @@ final class IOS27CaptureEngine: NSObject, SCContentSharingPickerObserver, SCStre
                 // Do not lock capture to nativeBounds in portrait. Leave
                 // stream dimensions controlled by ScreenCaptureKit so frames
                 // can reflect live portrait/landscape changes.
-                config.pixelFormat = kCVPixelFormatType_32BGRA
                 config.capturesAudio = true
                 config.sampleRate = 48_000
                 config.channelCount = 2
