@@ -22,8 +22,14 @@ final class CastRealtimeEncoder {
     private var forceKeyframe = false
     private let renderQueue = DispatchQueue(label: "castdeck.cast.encoder", qos: .userInitiated)
     private var active = true
-    private var encoderRecoveryCount = 0
-    private let maximumEncoderRecoveries = 3
+    // All encoder state below is owned by renderQueue.
+    private var recoveryFailures = 0
+    private var retryEncoderAfter: TimeInterval = 0
+    // ScreenCaptureKit can continue at 30fps while an encoder is being reset.
+    // Bound retained IOSurface frames so backgrounding cannot build a huge queue.
+    private let submissionLock = NSLock()
+    private var pendingSubmissions = 0
+    private let maximumQueuedFrames = 2
 
     init(quality4K: Bool) throws {
         width = quality4K ? 3840 : 1920
@@ -95,8 +101,36 @@ final class CastRealtimeEncoder {
 
     func encode(_ buffer: CVPixelBuffer, pts: CMTime,
                 orientation: CGImagePropertyOrientation) {
+        submissionLock.lock()
+        guard pendingSubmissions < maximumQueuedFrames else {
+            submissionLock.unlock()
+            return
+        }
+        pendingSubmissions += 1
+        submissionLock.unlock()
         renderQueue.async { [weak self] in
-            guard let self, self.active, let session = self.session else { return }
+            guard let self else { return }
+            defer {
+                self.submissionLock.lock()
+                self.pendingSubmissions -= 1
+                self.submissionLock.unlock()
+            }
+            guard self.active else { return }
+            // An invalid VT session is expected to require re-creation when
+            // switching applications. Retry on fresh screen frames instead of
+            // permanently disabling video after three attempts.
+            if self.session == nil {
+                guard Date().timeIntervalSince1970 >= self.retryEncoderAfter else { return }
+                do {
+                    try self.configureSession()
+                    self.forceKeyframe = true
+                    self.onEvent?("Video encoder resumed on a new capture frame")
+                } catch {
+                    self.scheduleEncoderRetry("Video encoder reinitialization failed: " + error.localizedDescription)
+                    return
+                }
+            }
+            guard let session = self.session else { return }
             if let last = self.lastPTS {
                 let step = CMTimeSubtract(pts, last)
                 if CMTimeCompare(step, CMTime(value: 1, timescale: 30)) < 0 { return }
@@ -148,30 +182,25 @@ final class CastRealtimeEncoder {
         }
     }
 
-    // Called on the serial render queue after a failed encode.
+    // Called exclusively on renderQueue.
     private func recoverEncoder(status: OSStatus) {
         guard active else { return }
-        onEvent?("VideoToolbox encode error \(status); resetting encoder")
         if let old = session {
             session = nil
             VTCompressionSessionInvalidate(old)
         }
-        guard encoderRecoveryCount < maximumEncoderRecoveries else {
-            active = false
-            onEvent?("Encoder failed after repeated recovery attempts; restart mirroring")
-            return
-        }
-        encoderRecoveryCount += 1
+        scheduleEncoderRetry("VideoToolbox encoder invalidated (OSStatus \(status))")
+    }
+
+    private func scheduleEncoderRetry(_ explanation: String) {
+        recoveryFailures = min(recoveryFailures + 1, 8)
+        let seconds = min(5.0, 0.25 * pow(2.0, Double(recoveryFailures - 1)))
+        retryEncoderAfter = Date().timeIntervalSince1970 + seconds
         lastPTS = nil
         firstPTS = nil
         forceKeyframe = true
-        do {
-            try configureSession()
-            onEvent?("Video encoder recovered (\(encoderRecoveryCount)/\(maximumEncoderRecoveries))")
-        } catch {
-            active = false
-            onEvent?("Encoder recovery failed: " + error.localizedDescription)
-        }
+        // At most once per retry, not 30 log entries each second.
+        onEvent?("\(explanation); retrying in \(seconds)s while screen sharing remains active")
     }
 
     func requestKeyframe() {
@@ -240,6 +269,7 @@ final class CastRealtimeEncoder {
             offset += n
         }
         guard !annexB.isEmpty else { return }
+        renderQueue.async { [weak self] in self?.recoveryFailures = 0 }
         let seconds = CMTimeGetSeconds(sample.presentationTimeStamp)
         guard seconds.isFinite && seconds >= 0 else { return }
         let timestamp = UInt32(truncatingIfNeeded: UInt64(seconds * 90_000))
