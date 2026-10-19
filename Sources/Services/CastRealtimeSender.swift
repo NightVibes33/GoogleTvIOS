@@ -64,7 +64,10 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
             if previous.device.deviceID != receiverID {
                 throw RealtimeMirrorError.receiver("Another TV is connected. Disconnect it before mirroring.")
             }
-            if previous.applicationMetadata?.applicationID == Self.appID {
+            // Application metadata may be cached after Cast has terminated.
+            // Never reattach the control channel to a dead receiver.
+            if previous.applicationMetadata?.applicationID == Self.appID,
+               manager.hasConnectedCastSession() {
                 attach(to: previous)
                 return
             }
