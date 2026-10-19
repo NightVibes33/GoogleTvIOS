@@ -25,6 +25,7 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
     private var negotiating = false
     private var configured = false
     private var offerSequence = 0
+    private var offerPending = false
     private var restartAfterPreviousSession: GCKDevice?
     private(set) var negotiated4K = false
 
@@ -55,6 +56,7 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
         negotiated4K = false
         configured = false
         negotiating = true
+        offerPending = false
         transport?.stop()
         transport = nil
         onEvent?("Opening built-in Chromecast mirroring receiver " + Self.appID)
@@ -141,7 +143,8 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
     private var streamAudioOffer: CastRealtimeWire.Offer?
     private(set) var audioNegotiated = false
     private func sendOffer() {
-        guard negotiating, let channel else { return }
+        guard negotiating, !offerPending, let channel else { return }
+        offerPending = true
         let offer = CastRealtimeWire.Offer.video(codec: desired4K ? "hevc" : "h264")
         streamOffer = offer
         let audio = CastRealtimeWire.Offer.audio()
@@ -170,6 +173,7 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
             onEvent?("Sent real-time " + (desired4K ? "4K HEVC" : "1080p H.264") +
                      " OFFER; waiting for receiver-selected RTP parameters")
         } catch {
+            offerPending = false
             onFailure?("Cast Streaming OFFER failed: " + error.localizedDescription)
         }
     }
@@ -189,6 +193,7 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
             if desired4K {
                 onEvent?("Chromecast rejected 4K; retrying real-time 1080p H.264: " + reason)
                 desired4K = false
+                offerPending = false
                 sendOffer()
             } else {
                 onFailure?("Chromecast rejected real-time H.264 streaming: " + reason)
@@ -202,6 +207,7 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
             return
         }
         negotiating = false
+        offerPending = false
         negotiated4K = desired4K
         audioNegotiated = indexes.contains(1)
         if !audioNegotiated {
@@ -241,6 +247,7 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
 
     func stop() {
         negotiating = false
+        offerPending = false
         configured = false
         transport?.stop()
         transport = nil
