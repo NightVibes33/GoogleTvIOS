@@ -221,6 +221,9 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
         transport.onEvent = { [weak self] message in
             Task { @MainActor in self?.onEvent?(message) }
         }
+        transport.onFailure = { [weak self] message in
+            Task { @MainActor in self?.onFailure?(message) }
+        }
         transport.onPacketLoss = { [weak self] in
             Task { @MainActor in self?.onKeyframeNeeded?() }
         }
