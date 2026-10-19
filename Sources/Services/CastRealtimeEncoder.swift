@@ -22,6 +22,8 @@ final class CastRealtimeEncoder {
     private var forceKeyframe = false
     private let renderQueue = DispatchQueue(label: "castdeck.cast.encoder", qos: .userInitiated)
     private var active = true
+    private var encoderRecoveryCount = 0
+    private let maximumEncoderRecoveries = 3
 
     init(quality4K: Bool) throws {
         width = quality4K ? 3840 : 1920
@@ -81,7 +83,12 @@ final class CastRealtimeEncoder {
             set(kVTCompressionPropertyKey_ProfileLevel,
                 kVTProfileLevel_H264_High_4_1)
         }
-        VTCompressionSessionPrepareToEncodeFrames(output)
+        let preparation = VTCompressionSessionPrepareToEncodeFrames(output)
+        guard preparation == noErr else {
+            VTCompressionSessionInvalidate(output)
+            session = nil
+            throw RealtimeMirrorError.capture("Unable to prepare hardware encoder (\(preparation)).")
+        }
         onEvent?("VideoToolbox configured " + String(width) + "×" + String(height) +
                  " real-time video (30 fps, no frame reordering)")
     }
@@ -137,9 +144,33 @@ final class CastRealtimeEncoder {
                                                          frameProperties: extra as CFDictionary?,
                                                          sourceFrameRefcon: nil,
                                                          infoFlagsOut: nil)
-            if status != noErr {
-                self.onEvent?("VideoToolbox encode error " + String(status))
-            }
+            if status != noErr { self.recoverEncoder(status: status) }
+        }
+    }
+
+    // Called on the serial render queue after a failed encode.
+    private func recoverEncoder(status: OSStatus) {
+        guard active else { return }
+        onEvent?("VideoToolbox encode error \(status); resetting encoder")
+        if let old = session {
+            session = nil
+            VTCompressionSessionInvalidate(old)
+        }
+        guard encoderRecoveryCount < maximumEncoderRecoveries else {
+            active = false
+            onEvent?("Encoder failed after repeated recovery attempts; restart mirroring")
+            return
+        }
+        encoderRecoveryCount += 1
+        lastPTS = nil
+        firstPTS = nil
+        forceKeyframe = true
+        do {
+            try configureSession()
+            onEvent?("Video encoder recovered (\(encoderRecoveryCount)/\(maximumEncoderRecoveries))")
+        } catch {
+            active = false
+            onEvent?("Encoder recovery failed: " + error.localizedDescription)
         }
     }
 
