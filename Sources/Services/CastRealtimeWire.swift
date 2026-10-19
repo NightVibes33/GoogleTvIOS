@@ -73,6 +73,7 @@ final class CastRealtimeWire {
     }
 
     var onEvent: ((String) -> Void)?
+    var onFailure: ((String) -> Void)?
     var onReady: (() -> Void)?
     var onPacketLoss: (() -> Void)?
     var onVideoAcknowledged: (() -> Void)?
@@ -118,6 +119,7 @@ final class CastRealtimeWire {
             case .failed(let error):
                 self.stateReady = false
                 self.onEvent?("RTP connection failed: " + error.localizedDescription)
+                self.onFailure?("Chromecast UDP connection failed: " + error.localizedDescription)
             case .cancelled:
                 self.stateReady = false
             default: break
@@ -272,7 +274,12 @@ final class CastRealtimeWire {
 
     private func receiveFeedback() {
         connection?.receiveMessage { [weak self] data, _, _, error in
-            guard let self, error == nil, self.stateReady else { return }
+            guard let self, self.stateReady else { return }
+            if let error {
+                self.stateReady = false
+                self.onFailure?("Chromecast UDP feedback stopped: " + error.localizedDescription)
+                return
+            }
             if let data { self.parseRTCP(data) }
             self.receiveFeedback()
         }
