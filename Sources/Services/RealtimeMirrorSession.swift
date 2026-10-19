@@ -158,9 +158,9 @@ final class RealtimeMirrorSession: ObservableObject {
                                 try? await Task.sleep(nanoseconds: 25_000_000_000)
                                 guard let self, self.generation == current,
                                       !self.sawRemoteVideo else { return }
-                                self.stop()
-                                self.error = "Chromecast did not acknowledge video frames. Check Cast Streaming logs in Files."
-                                self.log("Video ACK timeout: no RTCP checkpoint from Chromecast")
+                                self.log("Video ACK timeout: retrying Chromecast while keeping capture active")
+                                self.handleReceiverInterruption("No video acknowledgement from Chromecast",
+                                                                receiverID: receiverID, generation: current)
                             }
                         }
                     }
