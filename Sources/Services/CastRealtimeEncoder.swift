@@ -15,6 +15,7 @@ final class CastRealtimeEncoder {
     private let height: Int
     private let codec: CMVideoCodecType
     private let context = CIContext(options: [.useSoftwareRenderer: false])
+    private let framePool: CVPixelBufferPool
     private var lastOrientation: Bool?
     private var firstPTS: CMTime?
     private var lastPTS: CMTime?
@@ -26,6 +27,24 @@ final class CastRealtimeEncoder {
         width = quality4K ? 3840 : 1920
         height = quality4K ? 2160 : 1080
         codec = quality4K ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264
+        let attributes: [String: Any] = [
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:],
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height,
+            kCVPixelBufferMetalCompatibilityKey as String: true
+        ]
+        let poolOptions: [String: Any] = [
+            kCVPixelBufferPoolMinimumBufferCountKey as String: 5
+        ]
+        var pool: CVPixelBufferPool?
+        let result = CVPixelBufferPoolCreate(kCFAllocatorDefault,
+                                             poolOptions as CFDictionary,
+                                             attributes as CFDictionary, &pool)
+        guard result == kCVReturnSuccess, let pool else {
+            throw RealtimeMirrorError.capture("Could not allocate a reusable video buffer pool.")
+        }
+        framePool = pool
         try configureSession()
     }
 
@@ -86,16 +105,16 @@ final class CastRealtimeEncoder {
                 self.onEvent?(landscape ? "Landscape: fitting real-time video to full TV screen" :
                                       "Portrait: preserving the entire iPhone display")
             }
+            // Reuse IOSurface-backed video buffers instead of allocating
+            // new multi-megabyte frames at 30 fps. VideoToolbox keeps its
+            // reference until hardware encoding finishes.
             var dest: CVPixelBuffer?
-            let attrs: [String: Any] = [
-                kCVPixelBufferIOSurfacePropertiesKey as String: [:],
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: self.width,
-                kCVPixelBufferHeightKey as String: self.height
-            ]
-            guard CVPixelBufferCreate(kCFAllocatorDefault, self.width, self.height,
-                                      kCVPixelFormatType_32BGRA, attrs as CFDictionary, &dest)
-                  == kCVReturnSuccess, let dest else { return }
+            guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault,
+                                                     self.framePool, &dest)
+                  == kCVReturnSuccess, let dest else {
+                self.onEvent?("Video buffer pool is temporarily exhausted")
+                return
+            }
             let scale = landscape
                 ? max(CGFloat(self.width) / extent.width, CGFloat(self.height) / extent.height)
                 : min(CGFloat(self.width) / extent.width, CGFloat(self.height) / extent.height)

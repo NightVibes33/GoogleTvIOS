@@ -94,7 +94,6 @@ final class CastRealtimeWire {
     private var sentPackets: UInt32 = 0
     private var sentOctets: UInt32 = 0
     private var lastTimestamp: UInt32 = 0
-    private var lastReport = DispatchTime.now()
     private var pendingFrames: [(Data, UInt32, Bool)] = []
 
     init(offer: Offer, audioOffer: Offer? = nil) {
@@ -154,7 +153,9 @@ final class CastRealtimeWire {
         guard let encrypted = encrypt(frameID: audioFrameID, source: source, key: offer.key, ivMask: offer.ivMask) else {
             return
         }
-        let maxChunk = 1450
+        // Keep datagrams below common IPv6/Wi-Fi tunnel MTUs to avoid
+        // fragmented UDP packets and burst-induced playback stalls.
+        let maxChunk = 1180
         let count = max(1, (encrypted.count + maxChunk - 1) / maxChunk)
         guard count <= 65535 else { return }
         var packets: [Data] = []
@@ -186,7 +187,7 @@ final class CastRealtimeWire {
             audioOctets &+= UInt32(max(0, packet.count-19))
         }
         audioFrameID &+= 1
-        if audioFrameID % 20 == 0 {
+        if audioFrameID == 1 || audioFrameID % 20 == 0 {
             sendSenderReport(timestamp: timestamp, ssrc: offer.ssrc,
                              packets: audioPackets, octets: audioOctets)
         }
@@ -204,7 +205,7 @@ final class CastRealtimeWire {
             onEvent?("Cast RTP encryption failed")
             return
         }
-        let maxChunk = 1450
+        let maxChunk = 1180
         let count = max(1, (encrypted.count + maxChunk - 1) / maxChunk)
         guard count <= UInt16.max else { return }
         var packets: [Data] = []
@@ -242,9 +243,13 @@ final class CastRealtimeWire {
         }
         lastTimestamp = timestamp
         frameID &+= 1
-        if frameID % 15 == 0 { sendSenderReport(timestamp: timestamp,
+        // Send the first video clock immediately. Otherwise the receiver
+        // may have frames but no RTCP mapping for scheduling their playout.
+        if frameID == 1 || frameID % 30 == 0 {
+            sendSenderReport(timestamp: timestamp,
                                                        ssrc: offer.ssrc, packets: sentPackets,
-                                                       octets: sentOctets) }
+                                                       octets: sentOctets)
+        }
         if frameID == 1 { onEvent?("First Cast Streaming video frame sent") }
     }
 
@@ -301,6 +306,10 @@ final class CastRealtimeWire {
                             onEvent?("Cast RTCP video checkpoint advanced to \(checkpoint)")
                         }
                     }
+                }
+                guard mediaSSRC == offer.ssrc || mediaSSRC == audioOffer?.ssrc else {
+                    offset += size
+                    continue
                 }
                 let ring = mediaSSRC == audioOffer?.ssrc ? audioSent : sent
                 for i in 0..<lossCount {

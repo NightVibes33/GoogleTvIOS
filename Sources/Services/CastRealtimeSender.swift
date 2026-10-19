@@ -25,6 +25,7 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
     private var negotiating = false
     private var configured = false
     private var offerSequence = 0
+    private var restartAfterPreviousSession: GCKDevice?
     private(set) var negotiated4K = false
 
     override init() {
@@ -59,9 +60,21 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
         onEvent?("Opening built-in Chromecast mirroring receiver " + Self.appID)
         if let previous = manager.currentCastSession {
             if previous.device.deviceID != receiverID {
-                throw RealtimeMirrorError.receiver("Stop the previous Cast session before mirroring to another TV.")
+                throw RealtimeMirrorError.receiver("Another TV is connected. Disconnect it before mirroring.")
             }
-            attach(to: previous)
+            if previous.applicationMetadata?.applicationID == Self.appID {
+                attach(to: previous)
+                return
+            }
+            // A stale Default Media Receiver session on this Chromecast
+            // cannot accept a Cast Streaming OFFER. Close the old session,
+            // then launch the correct built-in real-time receiver.
+            restartAfterPreviousSession = device
+            guard manager.endSessionAndStopCasting(true) else {
+                restartAfterPreviousSession = nil
+                throw RealtimeMirrorError.receiver("Could not switch the TV to screen sharing.")
+            }
+            onEvent?("Switching Chromecast from its previous app to screen sharing")
             return
         }
         // Receiver launch is selected by GCKDiscoveryCriteria when the
@@ -73,6 +86,11 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
 
     func sessionManager(_ sessionManager: GCKSessionManager, didStart session: GCKSession) {
         if let cast = session as? GCKCastSession, cast.device.deviceID == activeReceiverID {
+            let activeID = cast.applicationMetadata?.applicationID
+            if let activeID, activeID != Self.appID {
+                onFailure?("The TV opened a different Cast receiver instead of screen sharing.")
+                return
+            }
             onEvent?("Chromecast mirroring app connected")
             attach(to: cast)
         }
@@ -92,6 +110,16 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
 
     func sessionManager(_ sessionManager: GCKSessionManager, didEnd session: GCKSession,
                         withError error: Error?) {
+        if let device = restartAfterPreviousSession, negotiating {
+            restartAfterPreviousSession = nil
+            configured = false
+            guard manager.startSession(with: device) else {
+                onFailure?("Couldn't switch to the screen-sharing receiver.")
+                return
+            }
+            onEvent?("Launching the built-in screen-sharing receiver")
+            return
+        }
         guard negotiating || transport != nil else { return }
         onFailure?("Chromecast real-time mirroring session ended" +
                    (error.map { ": " + $0.localizedDescription } ?? ""))
@@ -151,6 +179,10 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
         if root["type"] as? String != "ANSWER" { return }
         guard negotiating, let offer = streamOffer else { return }
+        if let sequence = root["seqNum"] as? Int, sequence != offerSequence {
+            onEvent?("Ignored stale Chromecast streaming answer")
+            return
+        }
         let accepted = (root["result"] as? String)?.lowercased() == "ok"
         guard accepted, let answer = root["answer"] as? [String: Any] else {
             let reason = (root["error"] as? [String: Any])?["description"] as? String ?? "Receiver rejected the codec"
@@ -219,6 +251,7 @@ final class CastRealtimeSender: NSObject, GCKSessionManagerListener {
         activeReceiverID = nil
         streamOffer = nil
         streamAudioOffer = nil
+        restartAfterPreviousSession = nil
         audioNegotiated = false
         manager.endSession()
         onEvent?("Stopped real-time Chromecast streaming")

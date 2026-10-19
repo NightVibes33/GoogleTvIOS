@@ -322,3 +322,11 @@ embedded or guessed. For public App Store rollout, also publish an accurate
 privacy policy and update Apple App Privacy disclosures for optional
 diagnostic collection. Do not describe aggregated failure codes as full
 customer log files.
+
+## v2.3.1 — Cast Streaming stability
+
+Mirroring reuses IOSurface-backed CVPixelBuffers through a CoreVideo pixel buffer pool rather than allocating one full-HD/4K framebuffer every screen frame. Audio and video Cast-RTP use 1180-byte payload chunks to fit networks with reduced path MTUs. Sender reports now begin with the first video/audio access unit, so the Chromecast has playout clock references without waiting for a half-second of frames. Receiver feedback ignores unknown media SSRCs and retains bounded retransmission caches.
+
+If an existing session on the selected Chromecast is running an ordinary media receiver, CastDeck ends that session and waits for its completion before launching the built-in Cast Streaming app (`0F5096E8`). It checks the active receiver app identity and discards responses from stale 4K/1080p OFFER attempts. No HLS, recording files or Chromecast-side installation is required. The remote, native keyboard, mic and consumer UI are unaffected.
+
+**Physical validation remains necessary.** Compiling on iOS 27 does not establish that receiver negotiation, RTP playback or audio synchronization work on a particular Chromecast. Do not treat first-frame sent as playback proof; RTCP acknowledgment remains the app's delivery signal.

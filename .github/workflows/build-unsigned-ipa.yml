@@ -60,8 +60,8 @@ jobs:
           description = info.get("NSLocalNetworkUsageDescription", "")
           assert expected.issubset(services), f"Missing Bonjour service types: {expected - services}"
           assert isinstance(description, str) and description.strip(), "Missing NSLocalNetworkUsageDescription"
-          assert info.get("CFBundleShortVersionString") == "2.3.0", f"Unexpected version: {info.get('CFBundleShortVersionString')}"
-          assert str(info.get("CFBundleVersion")) == "14", f"Unexpected build number: {info.get('CFBundleVersion')}"
+          assert info.get("CFBundleShortVersionString") == "2.3.1", f"Unexpected version: {info.get('CFBundleShortVersionString')}"
+          assert str(info.get("CFBundleVersion")) == "15", f"Unexpected build number: {info.get('CFBundleVersion')}"
           assert info.get("NSScreenCaptureUsageDescription"), "Missing ScreenCaptureKit usage description"
           assert info.get("NSMicrophoneUsageDescription"), "Missing microphone privacy usage description"
           assert "CastDeckTelemetryEndpoint" in info, "Missing automatic diagnostics endpoint configuration"
