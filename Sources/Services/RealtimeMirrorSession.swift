@@ -27,6 +27,9 @@ final class RealtimeMirrorSession: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var didNegotiate = false
     private var sawRemoteVideo = false
+    private var currentReceiverID: String?
+    private var reconnectAttempts = 0
+    private var reconnectTask: Task<Void, Never>?
 
     init() {
         CastMediaSender.configureSDK()
@@ -63,6 +66,11 @@ final class RealtimeMirrorSession: ObservableObject {
         }
     }
 
+    func sceneDidChange(to phase: ScenePhase) {
+        guard isStarting || isMirroring else { return }
+        log("iOS scene phase: \(phase); native full-display stream should remain active")
+    }
+
     func start(receiverID: String) {
         guard !isStarting, !isMirroring else { return }
         guard #available(iOS 27.0, *) else {
@@ -71,6 +79,10 @@ final class RealtimeMirrorSession: ObservableObject {
         }
         generation = UUID()
         let current = generation
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectAttempts = 0
+        currentReceiverID = receiverID
         error = nil
         videoFrames = 0
         didNegotiate = false
@@ -88,10 +100,7 @@ final class RealtimeMirrorSession: ObservableObject {
         sender.onFailure = { [weak self] message in
             Task { @MainActor in
                 guard let self, self.generation == current else { return }
-                self.stop()
-                self.error = message
-                self.log("Native Cast Streaming failed: " + message)
-                CastDeckDiagnostics.shared.report("mirroring")
+                self.handleReceiverInterruption(message, receiverID: receiverID, generation: current)
             }
         }
         sender.onKeyframeNeeded = { [weak self] in
@@ -100,6 +109,9 @@ final class RealtimeMirrorSession: ObservableObject {
         sender.onVideoPacket = { [weak self] in
             guard let self, self.generation == current, !self.sawRemoteVideo else { return }
             self.sawRemoteVideo = true
+            self.reconnectAttempts = 0
+            self.reconnectTask?.cancel()
+            self.reconnectTask = nil
             self.isMirroring = true
             self.isStarting = false
             self.error = nil
@@ -108,6 +120,14 @@ final class RealtimeMirrorSession: ObservableObject {
         sender.onNegotiated = { [weak self] in
             guard let self, self.generation == current else { return }
             self.didNegotiate = true
+            if self.capture != nil, let encoder = self.encoder {
+                // Reuse Apple's already-approved full-display capture when the
+                // Cast receiver restarts. Never show the picker a second time.
+                encoder.requestKeyframe()
+                self.log("Chromecast reconnected; retaining live iPhone capture and requesting keyframe")
+                self.startReceiverACKWatchdog(generation: current)
+                return
+            }
             self.log("Cast Streaming receiver negotiated; starting iPhone screen capture")
             do {
                 let encoder = try CastRealtimeEncoder(quality4K: sender.negotiated4K)
@@ -192,8 +212,55 @@ final class RealtimeMirrorSession: ObservableObject {
         }
     }
 
+    private func startReceiverACKWatchdog(generation current: UUID) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard let self, self.generation == current, !self.sawRemoteVideo else { return }
+            self.handleReceiverInterruption("Chromecast stopped acknowledging live video",
+                                            receiverID: self.currentReceiverID ?? "",
+                                            generation: current)
+        }
+    }
+
+    // Preserve the SCStream and VideoToolbox encoder across a short receiver
+    // disconnect; only renegotiate Cast's control and RTP transport.
+    private func handleReceiverInterruption(_ message: String, receiverID: String,
+                                            generation current: UUID) {
+        guard generation == current else { return }
+        guard capture != nil, encoder != nil, didNegotiate, !receiverID.isEmpty,
+              reconnectAttempts < 4 else {
+            stop()
+            error = message
+            log("Native Cast Streaming ended: " + message)
+            CastDeckDiagnostics.shared.report("mirroring")
+            return
+        }
+        reconnectTask?.cancel()
+        reconnectAttempts += 1
+        sawRemoteVideo = false
+        isMirroring = false
+        isStarting = true
+        let attempt = reconnectAttempts
+        let delay = UInt64(min(8, 1 << (attempt - 1))) * 1_000_000_000
+        log("Chromecast disconnected: \(message). Reconnecting \(attempt)/4 without stopping screen capture")
+        reconnectTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard let self, !Task.isCancelled, self.generation == current else { return }
+            do {
+                try self.sender?.start(receiverID: receiverID, quality4K: self.quality4K)
+            } catch {
+                self.handleReceiverInterruption(error.localizedDescription,
+                                                receiverID: receiverID, generation: current)
+            }
+        }
+    }
+
     func stop() {
         generation = UUID()
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectAttempts = 0
+        currentReceiverID = nil
         refreshTask?.cancel()
         #if !targetEnvironment(simulator)
         if #available(iOS 27.0, *), let capture = capture as? IOS27RealtimeCapture {
