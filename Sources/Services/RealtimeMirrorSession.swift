@@ -296,6 +296,11 @@ final class IOS27RealtimeCapture: NSObject, SCContentSharingPickerObserver, SCSt
         self.audioEncoder = audioEncoder
         self.output = RealtimeFrameOutput(encoder: encoder, audioEncoder: audioEncoder)
         super.init()
+        output.onHeartbeat = { [weak self] frames in
+            Task { @MainActor [weak self] in
+                self?.onState?("iOS full-display capture heartbeat: \(frames) screen frames")
+            }
+        }
     }
 
     func presentPicker() {
@@ -362,6 +367,8 @@ private final class RealtimeFrameOutput: NSObject, SCStreamOutput {
     let queue = DispatchQueue(label: "castdeck.realtime.capture", qos: .userInitiated)
     private let encoder: CastRealtimeEncoder
     private let audioEncoder: CastRealtimeAudioEncoder?
+    private var screenFrameCount = 0
+    var onHeartbeat: ((Int) -> Void)?
     init(encoder: CastRealtimeEncoder, audioEncoder: CastRealtimeAudioEncoder?) {
         self.encoder = encoder
         self.audioEncoder = audioEncoder
@@ -376,6 +383,10 @@ private final class RealtimeFrameOutput: NSObject, SCStreamOutput {
             return
         }
         guard type == .screen, let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        screenFrameCount += 1
+        if screenFrameCount == 1 || screenFrameCount % 300 == 0 {
+            onHeartbeat?(screenFrameCount)
+        }
         let metadata = CMSampleBufferGetSampleAttachmentsArray(
             sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]]
         let orientationNumber = metadata?.first?[.videoOrientation] as? NSNumber
