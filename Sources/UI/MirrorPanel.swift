@@ -32,7 +32,7 @@ struct MirrorPanel: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        Text("Mirror your iPhone directly to Chromecast over local Wi-Fi. No HLS or screen recordings.")
+                        Text("Share your entire iPhone display with Chromecast. Keep mirroring while you switch to other apps. CastDeck does not save video.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         Label(
@@ -141,7 +141,7 @@ struct MirrorPanel: View {
                             .foregroundStyle(.red)
                     }
                 } footer: {
-                    Text("Mirroring requires iOS 27. Your iPhone will ask permission before sharing. Some protected video or audio cannot be shared.")
+                    Text("Mirroring requires iOS 27. Apple's screen-sharing permission may mention screen recording, but CastDeck only streams live to your TV and saves no recording. Protected media may be blocked.")
                 }
 
                 Section {
