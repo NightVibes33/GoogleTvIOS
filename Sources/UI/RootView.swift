@@ -7,6 +7,7 @@ struct RootView: View {
     @State private var devicePicker = false
     @State private var settings = false
     @State private var showingMirror = false
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var mirror = RealtimeMirrorSession()
     @State private var scanned = false
 
@@ -60,6 +61,9 @@ struct RootView: View {
         }
         .sheet(isPresented: $showingMirror) {
             MirrorPanel(mirror: mirror)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            mirror.sceneDidChange(to: phase)
         }
         .onAppear {
             guard !scanned else { return }
